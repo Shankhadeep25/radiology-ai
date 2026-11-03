@@ -23,22 +23,6 @@ const DEMO_CASES = [
   { name: 'Ananya Rao', age: 41, sample: 'us_breast_demo.jpg', label: 'US BI-RADS', modality: 'US' },
 ]
 
-function fallbackDemoImage(modality) {
-  const canvas = document.createElement('canvas')
-  canvas.width = 512
-  canvas.height = 512
-  const ctx = canvas.getContext('2d')
-  const fills = { XR: '#8c8c8c', CT: '#5a5a5a', MR: '#323232', US: '#a0a0a0' }
-  ctx.fillStyle = fills[modality] || '#888'
-  ctx.fillRect(0, 0, 512, 512)
-  ctx.fillStyle = modality === 'US' ? '#2a2a2a' : '#d8d8d8'
-  if (modality === 'CT') ctx.fillRect(180, 160, 70, 70)
-  else if (modality === 'MR') ctx.fillRect(200, 180, 110, 90)
-  else if (modality === 'US') ctx.fillRect(190, 200, 90, 70)
-  else ctx.fillRect(90, 330, 140, 100)
-  return new Promise((resolve) => canvas.toBlob((b) => resolve(b), 'image/png'))
-}
-
 export default function Analyze() {
   const [patientName, setPatientName] = useState('')
   const [patientAge, setPatientAge] = useState('')
@@ -87,19 +71,19 @@ export default function Analyze() {
     setResult(null)
     try {
       const token = localStorage.getItem('token')
-      const res = await fetch(`/api/v1/demo/samples/${demoCase.sample}`, {
+      let res = await fetch(`/api/v1/demo/samples/${demoCase.sample}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       })
-      if (!res.ok) throw new Error('missing sample')
+      if (!res.ok) {
+        res = await fetch(`/demo_samples/${demoCase.sample}`)
+      }
+      if (!res.ok) throw new Error('Could not load clinical demo sample file')
       const blob = await res.blob()
-      const f = new File([blob], demoCase.sample, { type: blob.type || 'image/png' })
+      const f = new File([blob], demoCase.sample, { type: blob.type || 'image/jpeg' })
       setFile(f)
       setPreview(URL.createObjectURL(blob))
-    } catch {
-      const blob = await fallbackDemoImage(demoCase.modality)
-      const f = new File([blob], demoCase.sample, { type: 'image/png' })
-      setFile(f)
-      setPreview(URL.createObjectURL(blob))
+    } catch (err) {
+      setError(`Failed to load ${demoCase.label}: ${err.message}`)
     }
   }
 
