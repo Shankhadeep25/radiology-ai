@@ -10,6 +10,29 @@ from modalities import (
 from predict import predict_chest_xray
 from preprocessing import load_image, preprocess_image
 from utils import anatomy_blocks_pipeline, classify_image_anatomy, validate_modality_match
+from validator import verify_medical_image
+
+
+def _invalid_image_result(
+    reason: str,
+    declared_modality: str,
+    telemetry: dict,
+) -> dict:
+    return {
+        "primary_label": "Invalid Image Rejected",
+        "confidence": 0.0,
+        "severity": None,
+        "uncertainty_level": "rejected",
+        "differential_diagnosis": [],
+        "all_findings": [],
+        "model_version": "authenticity-guard",
+        "modality": declared_modality,
+        "report_extra": reason,
+        "is_valid": False,
+        "rejection_reason": reason,
+        "telemetry": telemetry,
+        "model_catalog": MODALITY_MODELS,
+    }
 
 
 def _modality_mismatch_result(
@@ -40,9 +63,15 @@ def run_modality_inference(
     original_filename: str | None = None,
 ) -> dict:
     hint = original_filename or image_path
+    declared = (declared_modality or detect_modality_from_file(image_path, declared_modality)).upper()
+
+    # Medical authenticity and non-medical image verification
+    is_valid, reject_reason, auth_telemetry = verify_medical_image(image_path, declared)
+    if not is_valid:
+        return _invalid_image_result(reject_reason, declared, auth_telemetry)
+
     gray = load_image(image_path)
     anatomy = classify_image_anatomy(gray)
-    declared = (declared_modality or detect_modality_from_file(image_path, declared_modality)).upper()
     validation = validate_modality_match(declared, anatomy, hint)
     modality = validation["effective_modality"]
 
@@ -70,4 +99,5 @@ def run_modality_inference(
     if validation.get("warning"):
         result["report_extra"] = (result.get("report_extra") or "") + " " + validation["warning"]
     result["model_catalog"] = MODALITY_MODELS
+    result["authenticity_telemetry"] = auth_telemetry
     return result
