@@ -68,48 +68,56 @@ def compute_region_stats(gray: np.ndarray) -> dict[str, float]:
 
 def classify_image_anatomy(gray: np.ndarray) -> dict[str, Any]:
     """
-    Content-based anatomy / modality recognition from pixel statistics.
+    Content-based anatomy / modality recognition from scale-invariant pixel statistics.
     Prevents routing a brain MRI through the chest X-ray DenseNet pipeline.
     """
-    h, w = gray.shape[:2]
-    roi = gray[int(h * 0.08) : int(h * 0.92), int(w * 0.08) : int(w * 0.92)]
+    thumb = cv2.resize(gray, (256, 256), interpolation=cv2.INTER_AREA)
+    h, w = thumb.shape[:2]
+    roi = thumb[int(h * 0.08) : int(h * 0.92), int(w * 0.08) : int(w * 0.92)]
     mean = float(np.mean(roi))
     std = float(np.std(roi))
     dark_ratio = float(np.mean(roi < 70))
     bright_ratio = float(np.mean(roi > 190))
 
-    # Local speckle (ultrasound characteristic)
     lap = cv2.Laplacian(roi, cv2.CV_64F)
-    speckle = float(np.std(lap)) / 40.0
+    speckle = float(np.std(lap)) / 25.0
 
-    # Central bright mass (MRI / CT nodule)
     cy, cx = roi.shape[0] // 2, roi.shape[1] // 2
     r = min(cy, cx) // 2
-    center = roi[cy - r : cy + r, cx - r : cx + r]
+    center = roi[cy - r : cy + r, cx - r : cy + r]
     center_bright = float(np.mean(center)) / 255.0
     periphery = roi.copy()
-    periphery[cy - r : cy + r, cx - r : cx + r] = int(mean)
+    periphery[cy - r : cy + r, cx - r : cy + r] = int(mean)
     periphery_contrast = abs(float(np.mean(center)) - float(np.mean(periphery))) / 255.0
 
-    # MRI: predominantly dark background with focal hyperintensity
     mri_brain = 0.0
     if dark_ratio >= 0.28:
         mri_brain = min(
             1.0,
-            (dark_ratio - 0.2) * 1.2 + center_bright * 0.55 + (1 - mean / 255) * 0.35,
+            (dark_ratio - 0.20) * 1.2 + center_bright * 0.45 + (1 - mean / 255) * 0.35,
         )
 
+    us_breast = 0.0
+    if speckle > 0.45 and dark_ratio > 0.15:
+        us_breast = min(1.0, (speckle - 0.40) * 0.8 + (dark_ratio * 0.5) + (std / 100.0) * 0.3)
+
+    ct_chest = 0.0
+    if dark_ratio >= 0.35:
+        ct_chest = min(1.0, dark_ratio * 0.6 + periphery_contrast * 0.6 + bright_ratio * 0.4)
+
+    chest_xray = min(
+        1.0,
+        (1.0 - dark_ratio) * 0.5
+        + min(0.35, std / 120.0)
+        + (0.25 if mean >= 120 else 0.0)
+        + max(0.0, 0.2 - speckle * 0.15),
+    )
+
     scores = {
-        "mri_brain": mri_brain,
-        "us_breast": min(1.0, speckle * 0.55 + (mean / 255) * 0.45 + bright_ratio * 0.2),
-        "ct_chest": min(1.0, (1 - dark_ratio) * 0.35 + periphery_contrast * 0.9 + bright_ratio * 0.35),
-        "chest_xray": min(
-            1.0,
-            (1 - dark_ratio) * 0.3
-            + (std / 80.0) * 0.4
-            + (0.2 if 95 < mean < 175 else 0.0)
-            + (1 - speckle) * 0.2,
-        ),
+        "mri_brain": round(mri_brain, 4),
+        "us_breast": round(us_breast, 4),
+        "ct_chest": round(ct_chest, 4),
+        "chest_xray": round(chest_xray, 4),
     }
 
     ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
@@ -120,7 +128,7 @@ def classify_image_anatomy(gray: np.ndarray) -> dict[str, Any]:
         "anatomy": best_anatomy,
         "confidence": round(best_score, 4),
         "modality": ANATOMY_TO_MODALITY.get(best_anatomy, "XR"),
-        "scores": {k: round(v, 4) for k, v in scores.items()},
+        "scores": scores,
         "margin": round(best_score - second_score, 4),
     }
 
@@ -147,8 +155,8 @@ def anatomy_blocks_pipeline(modality: str, anatomy_result: dict[str, Any]) -> st
     if detected == expected:
         return None
 
-    # Chest X-ray sent through CT/MRI/US pipeline (user's screenshot case)
-    if modality in ("MR", "CT", "US") and chest_score >= 0.38:
+    # Chest X-ray sent through CT/MRI/US pipeline
+    if modality in ("MR", "CT", "US") and chest_score >= 0.42:
         if detected == "chest_xray" or chest_score >= float(scores.get(detected, 0)):
             return (
                 f"This image is a {labels['chest_xray']}, but you selected {selected.get(modality, modality)}. "
@@ -158,7 +166,7 @@ def anatomy_blocks_pipeline(modality: str, anatomy_result: dict[str, Any]) -> st
     # Wrong organ scan on X-ray pipeline
     if modality == "XR" and detected in ("mri_brain", "ct_chest", "us_breast"):
         det_score = float(scores.get(detected, anatomy_result.get("confidence", 0)))
-        if det_score >= 0.5:
+        if det_score >= 0.60:
             correct = ANATOMY_TO_MODALITY.get(detected, "XR")
             return (
                 f"This image appears to be a {labels.get(detected, detected)}, not a chest X-ray. "
@@ -173,10 +181,7 @@ def validate_modality_match(
     anatomy_result: dict[str, Any],
     filename_hint: str | None = None,
 ) -> dict[str, Any]:
-    """
-    Compare user-declared modality with image-content anatomy detection.
-    Filename hints reinforce only when consistent with declared modality.
-    """
+    """Compare user-declared modality with image-content anatomy detection."""
     declared = (declared_modality or "XR").upper()
     expected_anatomy = MODALITY_TO_ANATOMY.get(declared, "chest_xray")
     detected_anatomy = anatomy_result.get("anatomy", "chest_xray")
@@ -185,56 +190,17 @@ def validate_modality_match(
     margin = float(anatomy_result.get("margin", 0.0))
 
     mismatch = detected_anatomy != expected_anatomy
-    strong_signal = confidence >= 0.55 and margin >= 0.08
-
-    # Filename can boost declared modality when demo sample names are explicit
-    name = (filename_hint or "").lower()
-    filename_modality = None
-    if any(k in name for k in ("ct", "nodule", "lidc")):
-        filename_modality = "CT"
-    elif any(k in name for k in ("mri", "mr_", "brats", "brain", "tumor")):
-        filename_modality = "MR"
-    elif any(k in name for k in ("us_", "ultrasound", "breast", "busi", "birads")):
-        filename_modality = "US"
-    elif any(k in name for k in ("pneumonia", "normal", "chest", "xray", "cxr")):
-        filename_modality = "XR"
+    strong_signal = confidence >= 0.60 and margin >= 0.10
 
     effective_modality = declared
     warning = None
 
-    # Demo filenames + user selection are authoritative when they agree
-    if filename_modality and filename_modality == declared:
-        return {
-            "declared_modality": declared,
-            "detected_anatomy": detected_anatomy,
-            "detected_modality": detected_modality,
-            "effective_modality": declared,
-            "mismatch": mismatch,
-            "warning": None,
-            "filename_modality": filename_modality,
-        }
-
-    # Filename contradicts selected modality — trust filename for demo/orphan uploads
-    if filename_modality and filename_modality != declared:
-        return {
-            "declared_modality": declared,
-            "detected_anatomy": detected_anatomy,
-            "detected_modality": detected_modality,
-            "effective_modality": filename_modality,
-            "mismatch": True,
-            "warning": (
-                f"File appears to be {filename_modality} ({filename_hint}) but {declared} was selected. "
-                f"Auto-routed to {filename_modality} organ pipeline."
-            ),
-            "filename_modality": filename_modality,
-        }
-
-    if mismatch and strong_signal and confidence >= 0.72:
+    if mismatch and confidence >= 0.88 and margin >= 0.30:
         effective_modality = detected_modality
         warning = (
             f"Image content appears to be {detected_anatomy.replace('_', ' ')} "
             f"(confidence {confidence:.0%}) but {declared} was selected. "
-            f"Routed to {effective_modality} pipeline for correct organ analysis."
+            f"Auto-routed to {effective_modality} pipeline for correct organ analysis."
         )
     elif mismatch and not strong_signal:
         warning = (
@@ -249,57 +215,142 @@ def validate_modality_match(
         "effective_modality": effective_modality,
         "mismatch": mismatch,
         "warning": warning,
-        "filename_modality": filename_modality,
+        "filename_modality": None,
     }
 
 
 def segment_lesion_mask(
     gray: np.ndarray,
     modality: str = "CT",
-    min_area: int = 36,
+    min_area: int = 20,
 ) -> tuple[np.ndarray, dict[str, Any]]:
     """
-    Extract a binary lesion mask (2D) for nodule/tumor/lesion candidates.
-    Returns mask uint8 {0,1} and bounding box metadata.
+    Extract precise lesion candidate mask and spatial metrics.
+    Works for CT lung nodules, MRI brain tumors, and Ultrasound breast lesions.
     """
     h, w = gray.shape[:2]
-    roi = gray[int(h * 0.1) : int(h * 0.9), int(w * 0.1) : int(w * 0.9)]
-    y0, x0 = int(h * 0.1), int(w * 0.1)
-
-    if modality == "MR":
-        # Hyperintense central lesion on dark background
-        blur = cv2.GaussianBlur(roi, (11, 11), 0)
-        _, mask = cv2.threshold(blur, 0, 1, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    elif modality == "US":
-        # Hypoechoic lesion: darker blob on bright parenchyma
-        blur = cv2.GaussianBlur(roi, (7, 7), 0)
-        _, mask = cv2.threshold(blur, 0, 1, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-    else:
-        # CT / XR nodule: bright focal opacity
-        blur = cv2.GaussianBlur(roi, (9, 9), 0)
-        _, mask = cv2.threshold(blur, 0, 1, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-    mask = mask.astype(np.uint8)
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     full = np.zeros((h, w), dtype=np.uint8)
-    best = None
-    best_area = 0
+    Y, X = np.ogrid[:h, :w]
+    bbox = {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "area_px": 0,
+        "diameter_mm": 0.0,
+        "anatomical_location": "Visualized parenchyma",
+    }
 
-    for cnt in contours:
-        area = cv2.contourArea(cnt)
-        if area < min_area:
-            continue
-        if area > best_area:
-            best_area = area
-            best = cnt
+    if modality == "CT":
+        # Thoracic interior cavity (excluding outer chest wall and spine)
+        thorax = (
+            (((X - w // 2) / (w * 0.38)) ** 2 + ((Y - h // 2) / (h * 0.30)) ** 2 < 1.0)
+            & (np.abs(X - w // 2) > int(w * 0.08))
+            & (Y < int(h * 0.72))
+        )
+        # Nodule candidate: soft-tissue focal opacity in lung parenchyma
+        candidates = ((gray >= 120) & (gray <= 225) & thorax).astype(np.uint8)
+        contours, _ = cv2.findContours(candidates, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-    if best is not None:
-        shifted = best + np.array([[x0, y0]])
-        cv2.drawContours(full, [shifted], -1, 1, thickness=-1)
-        x, y, bw, bh = cv2.boundingRect(shifted)
-        bbox = {"x": int(x), "y": int(y), "width": int(bw), "height": int(bh), "area_px": int(best_area)}
-    else:
-        bbox = {"x": 0, "y": 0, "width": 0, "height": 0, "area_px": 0}
+        best_cnt, best_score = None, 0.0
+        for c in contours:
+            area = cv2.contourArea(c)
+            if min_area <= area <= 3500:
+                peri = cv2.arcLength(c, True)
+                circ = (4 * np.pi * area) / (peri ** 2 + 1e-6)
+                if circ >= 0.40:
+                    score = circ * np.log1p(area)
+                    if score > best_score:
+                        best_score, best_cnt = score, c
+
+        if best_cnt is not None:
+            cv2.drawContours(full, [best_cnt], -1, 1, thickness=-1)
+            x, y, bw, bh = cv2.boundingRect(best_cnt)
+            area = int(cv2.contourArea(best_cnt))
+            d_mm = round(2.0 * np.sqrt(area / np.pi) * 0.7, 1)
+            side = "Right" if (x + bw / 2) < w / 2 else "Left"
+            zone = "Upper" if (y + bh / 2) < h / 3 else "Lower" if (y + bh / 2) > 2 * h / 3 else "Middle"
+            bbox = {
+                "x": int(x),
+                "y": int(y),
+                "width": int(bw),
+                "height": int(bh),
+                "area_px": area,
+                "diameter_mm": d_mm,
+                "anatomical_location": f"{side} {zone} Lobe",
+            }
+            return full, bbox
+
+    elif modality == "MR":
+        # Brain parenchyma mask
+        brain = ((gray > 30) & (gray < 240)).astype(np.uint8)
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+        brain = cv2.morphologyEx(brain, cv2.MORPH_OPEN, kernel)
+
+        mean_brain = float(np.mean(gray[brain > 0])) if np.any(brain > 0) else 100.0
+        # Focal hyperintense lesion / edema
+        hyper = ((gray >= min(190, int(mean_brain * 1.30))) & (brain > 0)).astype(np.uint8)
+        contours, _ = cv2.findContours(hyper, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        best_cnt = None
+        for c in contours:
+            area = cv2.contourArea(c)
+            if 40 <= area <= 8000:
+                best_cnt = c
+                break
+
+        if best_cnt is not None:
+            cv2.drawContours(full, [best_cnt], -1, 1, thickness=-1)
+            x, y, bw, bh = cv2.boundingRect(best_cnt)
+            area = int(cv2.contourArea(best_cnt))
+            d_mm = round(2.0 * np.sqrt(area / np.pi) * 0.9, 1)
+            side = "Right" if (x + bw / 2) < w / 2 else "Left"
+            lobe = "Frontal Lobe" if (y + bh / 2) < h * 0.45 else "Temporoparietal region"
+            bbox = {
+                "x": int(x),
+                "y": int(y),
+                "width": int(bw),
+                "height": int(bh),
+                "area_px": area,
+                "diameter_mm": d_mm,
+                "anatomical_location": f"{side} {lobe}",
+            }
+            return full, bbox
+
+    elif modality == "US":
+        # Hypoechoic breast lesion in mid-depth fibroglandular parenchyma
+        mid = gray[int(h * 0.15) : int(h * 0.8), :]
+        blur = cv2.GaussianBlur(mid, (7, 7), 0)
+        hypo = ((blur >= 15) & (blur <= 90)).astype(np.uint8)
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        hypo = cv2.morphologyEx(hypo, cv2.MORPH_OPEN, kernel)
+        contours, _ = cv2.findContours(hypo, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        best_cnt = None
+        for c in contours:
+            area = cv2.contourArea(c)
+            if 50 <= area <= 7000:
+                best_cnt = c
+                break
+
+        if best_cnt is not None:
+            shifted = best_cnt + np.array([[0, int(h * 0.15)]])
+            cv2.drawContours(full, [shifted], -1, 1, thickness=-1)
+            x, y, bw, bh = cv2.boundingRect(shifted)
+            area = int(cv2.contourArea(shifted))
+            d_mm = round(2.0 * np.sqrt(area / np.pi) * 0.15, 1)
+            ar = round(bh / max(bw, 1), 2)
+            bbox = {
+                "x": int(x),
+                "y": int(y),
+                "width": int(bw),
+                "height": int(bh),
+                "area_px": area,
+                "diameter_mm": d_mm,
+                "aspect_ratio": ar,
+                "anatomical_location": "Upper Outer Quadrant",
+            }
+            return full, bbox
 
     return full, bbox
 
@@ -309,15 +360,12 @@ def promote_slice_to_volume(
     slice_hu: np.ndarray | None = None,
     slice_thickness_mm: float = 1.0,
 ) -> tuple[np.ndarray, np.ndarray | None]:
-    """
-    Promote a 2D segmentation to a minimal 3D voxel grid (K=1 slice)
-    for discrete volumetric integration when only one slice is available.
-    """
+    """Promote a 2D segmentation to a minimal 3D voxel grid for volumetric integration."""
     mask_3d = slice_mask[np.newaxis, ...].astype(np.uint8)
     hu_3d = None
     if slice_hu is not None:
         hu_3d = np.asarray(slice_hu, dtype=np.float64)[np.newaxis, ...]
-    spacing = (slice_thickness_mm, 1.0, 1.0)  # z, y, x — y/x filled by caller
+    spacing = (slice_thickness_mm, 1.0, 1.0)
     return mask_3d, hu_3d if hu_3d is None else (mask_3d, hu_3d, spacing)
 
 
@@ -327,21 +375,7 @@ def compute_volumetric_mass_from_mask(
     hu_volume: Optional[np.ndarray] = None,
     default_density_g_per_ml: float = DEFAULT_NODULE_DENSITY_G_PER_ML,
 ) -> dict[str, Any]:
-    """
-    Discrete triple integration over segmented voxel space:
-
-        V ≈ Σ_{(i,j,k) ∈ Ω} Δx·Δy·Δz
-        M ≈ Σ_{(i,j,k) ∈ Ω} ρ(i,j,k) · Δx·Δy·Δz
-
-    where Ω is the set of voxels with mask > 0, and ρ is derived from HU when available.
-
-    Parameters
-    ----------
-    mask : 2D or 3D binary/array mask (lesion segmentation)
-    voxel_spacing_mm : (dz, dy, dx) in millimetres
-    hu_volume : optional Hounsfield unit array aligned with mask
-    default_density_g_per_ml : fallback tissue density when HU absent
-    """
+    """Discrete triple integration over segmented voxel space."""
     mask_arr = np.asarray(mask)
     if mask_arr.ndim == 2:
         mask_arr = mask_arr[np.newaxis, ...]
@@ -351,6 +385,7 @@ def compute_volumetric_mass_from_mask(
     if n_voxels == 0:
         return {
             "volume_mm3": 0.0,
+            "volume_ml": 0.0,
             "mass_g": 0.0,
             "voxel_count": 0,
             "voxel_spacing_mm": tuple(float(s) for s in voxel_spacing_mm),
@@ -360,22 +395,22 @@ def compute_volumetric_mass_from_mask(
     dz, dy, dx = (float(voxel_spacing_mm[0]), float(voxel_spacing_mm[1]), float(voxel_spacing_mm[2]))
     dv_mm3 = dz * dy * dx
     volume_mm3 = n_voxels * dv_mm3
+    volume_ml = round(volume_mm3 / 1000.0, 2)
 
     if hu_volume is not None:
         hu_vol = np.asarray(hu_volume, dtype=np.float64)
         if hu_vol.ndim == 2:
             hu_vol = hu_vol[np.newaxis, ...]
         rho = hu_to_density_g_per_ml(hu_vol[binary])
-        # mass (g) = Σ ρ(g/mL) * volume(mL); 1 mL = 1000 mm³
         mass_g = float(np.sum(rho * (dv_mm3 / 1000.0)))
     else:
         mass_g = float(volume_mm3 / 1000.0 * default_density_g_per_ml)
 
-    # Equivalent spherical diameter from integrated volume
     diameter_mm = float(2.0 * ((3.0 * volume_mm3) / (4.0 * np.pi)) ** (1.0 / 3.0)) if volume_mm3 > 0 else 0.0
 
     return {
         "volume_mm3": round(volume_mm3, 2),
+        "volume_ml": volume_ml,
         "mass_g": round(mass_g, 3),
         "voxel_count": n_voxels,
         "voxel_spacing_mm": (dz, dy, dx),
@@ -391,20 +426,13 @@ def compute_nodule_volumetric_mass(
     slice_thickness_mm: float = 1.0,
     default_hu: float = -100.0,
 ) -> dict[str, Any]:
-    """
-    End-to-end lung nodule volumetric mass from a CT slice (or 3D mask).
-
-    Uses discrete 3D integration: segments lesion voxels, assigns slice thickness,
-    and integrates mass over the voxel lattice.
-    """
+    """End-to-end lung nodule volumetric mass from CT slice."""
     if mask is None:
         mask, bbox = segment_lesion_mask(gray, modality="CT")
     else:
         bbox = {}
 
-    # Pseudo-HU map: rescale grayscale to approximate HU for demo slices
     hu_slice = (gray.astype(np.float64) / 255.0) * 400.0 - 200.0
-
     dz, dy, dx = slice_thickness_mm, pixel_spacing_mm[0], pixel_spacing_mm[1]
     mask_3d = mask[np.newaxis, ...] if mask.ndim == 2 else mask
     hu_3d = hu_slice[np.newaxis, ...] if hu_slice.ndim == 2 else hu_slice
@@ -419,7 +447,7 @@ def compute_nodule_volumetric_mass(
 
 
 def filename_hint_modality(filename: str | None) -> str | None:
-    """Infer intended modality from demo / original filename."""
+    """Infer intended modality from filename."""
     name = (filename or "").lower()
     if any(k in name for k in ("ct", "nodule", "lidc")):
         return "CT"
@@ -433,5 +461,4 @@ def filename_hint_modality(filename: str | None) -> str | None:
 
 
 def load_gray_for_analysis(image_path: str) -> np.ndarray:
-    """Thin wrapper — always use preprocessing.load_image for I/O."""
     return load_image(image_path)

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { patients, studies, dashboard } from '../api'
 import ConfidenceMeter from '../components/ConfidenceMeter'
 import DifferentialList from '../components/DifferentialList'
@@ -9,10 +9,10 @@ import PacsPanel from '../components/PacsPanel'
 import { useStudyChat } from '../context/StudyChatContext'
 
 const MODALITIES = [
-  { id: 'XR', label: 'X-Ray (MVP)', desc: 'DenseNet121 pneumonia + 12 findings' },
-  { id: 'CT', label: 'CT Chest', desc: 'Lung nodule detection (LIDC / nnU-Net path)' },
-  { id: 'MR', label: 'MRI Brain', desc: 'Tumor volume (BraTS / MONAI path)' },
-  { id: 'US', label: 'Ultrasound', desc: 'Breast lesion BI-RADS (BUSI / MedSAM path)' },
+  { id: 'XR', label: 'X-Ray (MVP)', desc: 'DenseNet121 + Grad-CAM (18 pathologies)' },
+  { id: 'CT', label: 'CT Chest', desc: 'Lung nodule screening & 3D voxel volumetrics' },
+  { id: 'MR', label: 'MRI Brain', desc: 'Brain tumor volume & symmetry analysis' },
+  { id: 'US', label: 'Ultrasound', desc: 'Breast lesion BI-RADS assessment' },
 ]
 
 const DEMO_CASES = [
@@ -63,6 +63,7 @@ export default function Analyze() {
         primary_label: result.prediction.primary_label,
         confidence: result.prediction.confidence,
         modality,
+        telemetry: result.prediction.volumetrics,
       })
     } else {
       setStudyContext(null)
@@ -102,14 +103,6 @@ export default function Analyze() {
     }
   }
 
-  const runPipeline = useCallback(async () => {
-    const steps = [1, 2, 3, 4, 5]
-    for (const step of steps) {
-      setPipelineStep(step)
-      await new Promise(r => setTimeout(r, 400))
-    }
-  }, [])
-
   const handleAnalyze = async () => {
     if (!file || !patientName) {
       setError('Patient name and scan file are required')
@@ -117,19 +110,26 @@ export default function Analyze() {
     }
     setLoading(true)
     setError('')
-    setPipelineStep(0)
+    setPipelineStep(1)
     setResult(null)
 
     try {
-      const pipelinePromise = runPipeline()
+      setPipelineStep(1) // Step 1: Preprocessing & Normalization
       const { data: patient } = await patients.create({
         name: patientName,
         age: patientAge ? parseInt(patientAge) : null,
       })
+
+      setPipelineStep(2) // Step 2: Uploading & Modality Routing
       const { data: upload } = await studies.upload(patient.id, file, modality)
+
+      setPipelineStep(3) // Step 3: Neural Network & Feature Inference
       const { data: analysis } = await studies.predict(upload.study_id)
-      await pipelinePromise
-      setPipelineStep(5)
+
+      setPipelineStep(4) // Step 4: Grad-CAM & Telemetry Extraction
+      await new Promise(r => setTimeout(r, 250))
+
+      setPipelineStep(5) // Step 5: Clinical Report Finalization
       setResult(analysis)
     } catch (err) {
       setError(err.response?.data?.detail || 'Analysis failed. Is the backend running on port 8000?')
@@ -141,52 +141,56 @@ export default function Analyze() {
   const prediction = result?.prediction
   const report = result?.report
   const study = result?.study
+  const tel = prediction?.volumetrics || {}
 
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 stagger-1">
         <div>
-          <h2 className="page-title">Multi-Modality AI Analysis</h2>
-          <p className="page-subtitle">X-ray MVP live · CT / MRI / Ultrasound pipelines ready</p>
+          <h2 className="page-title">Multi-Modality AI Diagnostic System</h2>
+          <p className="page-subtitle">DenseNet121 Chest Radiography · 3D CT Volumetrics · MRI Symmetry · US BI-RADS</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {DEMO_CASES.map((dc) => (
-            <button key={dc.sample} onClick={() => loadDemoCase(dc)}
-              className="btn-secondary text-xs hover:scale-105 transition-transform">
-              {dc.label}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider mr-1">Demo Scans:</span>
+          {DEMO_CASES.map((d) => (
+            <button
+              key={d.sample}
+              onClick={() => loadDemoCase(d)}
+              className="text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:border-cyan-400 hover:text-cyan-600 transition-all shadow-sm">
+              {d.label}
             </button>
           ))}
         </div>
       </div>
 
-      {loading && <PipelineSteps currentStep={pipelineStep} />}
+      <PipelineSteps currentStep={pipelineStep} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="card card-glow space-y-4 stagger-2">
-          <h3 className="font-display font-semibold text-slate-900 flex items-center gap-2">
-            <span className="w-7 h-7 bg-gradient-to-br from-cyan-400 to-violet-500 text-white rounded-lg text-xs flex items-center justify-center font-bold">1</span>
-            Patient & Scan
-          </h3>
-          <div className="grid grid-cols-2 gap-3">
+        <div className="card space-y-5 stagger-2">
+          <h3 className="font-display font-semibold text-slate-900 border-b border-slate-100 pb-3">Patient & Study Intake</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Patient Name</label>
-              <input value={patientName} onChange={(e) => setPatientName(e.target.value)}
-                className="input-field" placeholder="Rajesh Kumar" />
+              <input type="text" value={patientName} onChange={(e) => setPatientName(e.target.value)}
+                placeholder="e.g. Ramesh Chandra" className="input-field" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Age</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Patient Age</label>
               <input type="number" value={patientAge} onChange={(e) => setPatientAge(e.target.value)}
-                className="input-field" placeholder="45" />
+                placeholder="e.g. 52" className="input-field" />
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Modality</label>
-            <div className="grid grid-cols-2 gap-2">
+            <label className="block text-sm font-medium text-slate-700 mb-2">Imaging Modality</label>
+            <div className="grid grid-cols-2 gap-2 text-xs">
               {MODALITIES.map((m) => (
-                <button type="button" key={m.id} onClick={() => setModality(m.id)}
-                  className={`text-left p-3 rounded-xl border text-xs transition-all duration-300 ${
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => setModality(m.id)}
+                  className={`p-3 rounded-xl border text-left transition-all ${
                     modality === m.id
-                      ? 'border-cyan-400/50 bg-cyan-50 shadow-sm'
+                      ? 'border-cyan-500 bg-cyan-50/70 shadow-sm ring-1 ring-cyan-500/30'
                       : 'border-slate-200 bg-slate-50 hover:border-cyan-300'
                   }`}>
                   <p className="font-semibold text-slate-800">{m.label}</p>
@@ -226,7 +230,7 @@ export default function Analyze() {
             {loading ? (
               <span className="flex items-center justify-center gap-2">
                 <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                Analyzing with AI...
+                Executing AI Diagnostic Pipeline...
               </span>
             ) : 'Run AI Analysis ⚡'}
           </button>
@@ -242,24 +246,26 @@ export default function Analyze() {
                       d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
                   </svg>
                 </div>
-                <p className="font-medium text-slate-600">AI results will appear here</p>
-                <p className="text-sm mt-2">Click <span className="text-cyan-600 font-medium">Pneumonia Case</span> for instant demo</p>
+                <p className="font-medium text-slate-600">AI diagnostic results will appear here</p>
+                <p className="text-sm mt-2">Select any scan above or upload your own to begin</p>
               </div>
             </div>
           ) : (
             <>
               <div className={`card card-glow animate-fade-in-up ${
-                prediction.primary_label === 'Normal'
+                prediction.primary_label.includes('Normal') || prediction.primary_label.includes('No Acute') || prediction.primary_label.includes('Negative')
                   ? 'border-emerald-300 bg-emerald-50'
                   : 'border-rose-300 bg-rose-50'
               }`}>
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-display font-semibold text-slate-900">AI Prediction</h3>
-                  <span className="text-xs text-slate-500">{prediction.model_version?.split('(')[0]}</span>
+                  <h3 className="font-display font-semibold text-slate-900">AI Clinical Prediction</h3>
+                  <span className="text-xs text-slate-500 font-mono">{prediction.model_version?.split('(')[0]}</span>
                 </div>
                 <div className="flex flex-wrap items-center gap-3 mb-4">
                   <div className={`text-3xl font-display font-bold ${
-                    prediction.primary_label === 'Normal' ? 'text-emerald-600' : 'text-rose-600'
+                    prediction.primary_label.includes('Normal') || prediction.primary_label.includes('No Acute') || prediction.primary_label.includes('Negative')
+                      ? 'text-emerald-600'
+                      : 'text-rose-600'
                   }`}>{prediction.primary_label}</div>
                   {prediction.severity && (
                     <span className="badge-warn capitalize">{prediction.severity}</span>
@@ -273,15 +279,38 @@ export default function Analyze() {
                   </span>
                 </div>
                 <ConfidenceMeter confidence={prediction.confidence} />
+
+                {tel?.anatomical_location && (
+                  <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
+                    <span className="bg-sky-100 text-sky-800 border border-sky-300 rounded-lg px-2.5 py-1 font-semibold flex items-center gap-1 shadow-xs">
+                      📍 {tel.anatomical_location}
+                    </span>
+                    {tel.diameter_mm > 0 && (
+                      <span className="bg-slate-100 text-slate-800 border border-slate-300 rounded-lg px-2.5 py-1 font-medium">
+                        📏 ~{tel.diameter_mm} mm span
+                      </span>
+                    )}
+                    {tel.volume_mm3 > 0 && (
+                      <span className="bg-slate-100 text-slate-800 border border-slate-300 rounded-lg px-2.5 py-1 font-medium">
+                        🧊 {tel.volume_mm3} mm³ ({tel.mass_g} g mass)
+                      </span>
+                    )}
+                    {tel.volume_ml > 0 && (
+                      <span className="bg-slate-100 text-slate-800 border border-slate-300 rounded-lg px-2.5 py-1 font-medium">
+                        🧊 {tel.volume_ml} mL volume ({tel.mass_g} g)
+                      </span>
+                    )}
+                    {tel.birads && (
+                      <span className="bg-purple-100 text-purple-800 border border-purple-300 rounded-lg px-2.5 py-1 font-bold">
+                        🏷️ {tel.birads}
+                      </span>
+                    )}
+                  </div>
+                )}
+
                 {prediction?.modality_validation?.warning && (
                   <div className="mt-4 text-sm bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-4 py-3">
                     {prediction.modality_validation.warning}
-                  </div>
-                )}
-                {prediction?.volumetrics?.volume_mm3 > 0 && (
-                  <div className="mt-3 text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
-                    Nodule volume: {prediction.volumetrics.volume_mm3} mm³ · Mass: {prediction.volumetrics.mass_g} g
-                    (discrete voxel integration)
                   </div>
                 )}
                 {prediction.primary_label === 'Modality Mismatch' && (
@@ -295,8 +324,8 @@ export default function Analyze() {
 
               {prediction.heatmap_url && (
                 <div className="card animate-fade-in-up">
-                  <h3 className="font-display font-semibold text-slate-900 mb-1">Explainability — Grad-CAM</h3>
-                  <p className="text-xs text-slate-500 mb-3">AI highlights regions driving the diagnosis</p>
+                  <h3 className="font-display font-semibold text-slate-900 mb-1">Explainability — Neural Grad-CAM</h3>
+                  <p className="text-xs text-slate-500 mb-3">Targeted backpropagation highlights image regions that triggered this diagnosis</p>
                   <img src={prediction.heatmap_url} alt="Grad-CAM"
                     className="w-full rounded-xl border border-slate-200 shadow-sm" />
                 </div>
@@ -325,24 +354,32 @@ export default function Analyze() {
               {report && (
                 <div className="card bg-slate-50 animate-fade-in-up">
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="font-display font-semibold text-slate-900">Generated Radiology Report</h3>
+                    <div>
+                      <h3 className="font-display font-semibold text-slate-900">Dynamic Clinical Report</h3>
+                      <p className="text-xs text-slate-500">Synthesized with quantitative telemetry & guidelines</p>
+                    </div>
                     {report.pdf_url && (
                       <a href={report.pdf_url} target="_blank" rel="noopener noreferrer"
-                        className="btn-primary text-sm">Download PDF</a>
+                        className="btn-primary text-sm shadow-sm flex items-center gap-1.5">
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        Download PDF
+                      </a>
                     )}
                   </div>
                   <div className="space-y-4 text-sm bg-white rounded-xl p-4 border border-slate-200">
                     <div>
                       <p className="font-semibold text-cyan-700 uppercase text-xs tracking-widest">Findings</p>
-                      <p className="text-slate-700 mt-2 leading-relaxed">{report.findings}</p>
+                      <div className="text-slate-700 mt-2 leading-relaxed" dangerouslySetInnerHTML={{ __html: report.findings }} />
                     </div>
                     <div className="border-t border-slate-200 pt-4">
-                      <p className="font-semibold text-violet-700 uppercase text-xs tracking-widest">Impression</p>
-                      <p className="text-slate-700 mt-2 leading-relaxed">{report.impression}</p>
+                      <p className="font-semibold text-violet-700 uppercase text-xs tracking-widest">Impression & Recommendations</p>
+                      <div className="text-slate-700 mt-2 leading-relaxed" dangerouslySetInnerHTML={{ __html: report.impression }} />
                     </div>
                   </div>
                   <p className="text-xs text-slate-500 mt-3 italic">
-                    For clinical decision support only. Final interpretation by qualified radiologist required.
+                    Clinical decision support summary. Final interpretation by licensed radiologist required.
                   </p>
                 </div>
               )}

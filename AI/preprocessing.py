@@ -177,19 +177,29 @@ def denoise(gray: np.ndarray) -> np.ndarray:
     return cv2.fastNlMeansDenoising(gray, None, h=10, templateWindowSize=7, searchWindowSize=21)
 
 
+def normalize_xrv(img: np.ndarray) -> np.ndarray:
+    """Scale grayscale image to [-1024, 1024] 1-channel (1, H, W) float32 for TorchXRayVision."""
+    img_f = img.astype(np.float32)
+    img_min, img_max = float(img_f.min()), float(img_f.max())
+    if img_max > img_min:
+        scaled = (img_f - img_min) / (img_max - img_min) * 255.0
+    else:
+        scaled = np.zeros_like(img_f)
+    norm = (2.0 * (scaled / 255.0) - 1.0) * 1024.0
+    return norm[np.newaxis, :, :].astype(np.float32)
+
+
 def preprocess_image(image_path: str, size: int = 224) -> np.ndarray:
     """
-    Full preprocessing pipeline:
-    load -> CLAHE -> denoise -> resize -> normalize to [0,1] float32 CHW
+    Full preprocessing pipeline for TorchXRayVision DenseNet121:
+    load -> CLAHE -> denoise -> resize -> normalize to [-1024, 1024] float32 1xHxW
     """
     try:
         gray = load_image(image_path)
         enhanced = apply_clahe(gray)
         cleaned = denoise(enhanced)
         resized = cv2.resize(cleaned, (size, size), interpolation=cv2.INTER_AREA)
-        normalized = resized.astype(np.float32) / 255.0
-        rgb = np.stack([normalized] * 3, axis=0)
-        return rgb
+        return normalize_xrv(resized)
     except ValueError:
         raise
     except Exception as exc:

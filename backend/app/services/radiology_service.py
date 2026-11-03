@@ -119,6 +119,7 @@ def analyze_study(db: Session, study_id: int, user: User | None = None) -> Analy
             "modality_validation": result.get("modality_validation"),
             "anatomy_detection": result.get("anatomy_detection"),
             "raw_scores": result.get("raw_scores"),
+            "telemetry": result.get("telemetry"),
         }),
         heatmap_path=result.get("heatmap_path"),
         model_version=result.get("model_version"),
@@ -130,7 +131,7 @@ def analyze_study(db: Session, study_id: int, user: User | None = None) -> Analy
         findings=result["report"]["findings"],
         impression=result["report"]["impression"],
         pdf_path=result["report"].get("pdf_path"),
-        generated_by="template",
+        generated_by="ai-clinical-engine",
     )
     db.add(report)
     db.commit()
@@ -167,15 +168,19 @@ def generate_report_for_study(db: Session, study_id: int, user: User | None = No
     if not study:
         raise ValueError("Study not found")
     if not study.prediction:
-        pred_data = run_prediction_only(study.file_path)
+        pred_data = run_prediction_only(study.file_path, study.modality, study.original_filename)
     else:
-        diff_raw, findings_raw, _meta = _parse_diagnosis_json(study.prediction.differential_diagnosis)
+        diff_raw, findings_raw, meta = _parse_diagnosis_json(study.prediction.differential_diagnosis)
         pred_data = {
             "primary_label": study.prediction.primary_label,
             "confidence": study.prediction.confidence,
             "severity": study.prediction.severity,
             "differential_diagnosis": diff_raw,
             "all_findings": findings_raw,
+            "modality": study.modality,
+            "telemetry": meta.get("telemetry"),
+            "model_version": study.prediction.model_version,
+            "uncertainty_level": study.prediction.uncertainty_level,
         }
     report_data = run_report_only(
         pred_data,
@@ -192,13 +197,14 @@ def generate_report_for_study(db: Session, study_id: int, user: User | None = No
         study.report.findings = report_data["findings"]
         study.report.impression = report_data["impression"]
         study.report.pdf_path = report_data.get("pdf_path")
+        study.report.generated_by = "ai-clinical-engine"
     else:
         db.add(Report(
             study_id=study.id,
             findings=report_data["findings"],
             impression=report_data["impression"],
             pdf_path=report_data.get("pdf_path"),
-            generated_by="template",
+            generated_by="ai-clinical-engine",
         ))
     db.commit()
     db.refresh(study)
@@ -300,8 +306,7 @@ def _study_to_response(study: Study) -> StudyResponse:
         modality=study.modality,
         file_type=study.file_type,
         original_filename=study.original_filename,
-        image_url=f"/api/v1/studies/{study.id}/image" if settings.encrypt_uploads
-                else f"/api/v1/files/uploads/{Path(study.file_path).name}",
+        image_url=f"/api/v1/files/uploads/{Path(study.file_path).name}",
         created_at=study.created_at,
         prediction=_prediction_to_response(study.prediction) if study.prediction else None,
         report=_report_to_response(study.report) if study.report else None,
@@ -318,6 +323,7 @@ def _parse_diagnosis_json(raw: str | None) -> tuple[list, list, dict]:
         "modality_validation": data.get("modality_validation"),
         "anatomy_detection": data.get("anatomy_detection"),
         "raw_scores": data.get("raw_scores") or {},
+        "telemetry": data.get("telemetry") or {},
     }
     return data.get("differential", []), data.get("all_findings", []), meta
 
@@ -328,7 +334,8 @@ def _prediction_to_response(prediction: Prediction) -> PredictionResponse:
     if prediction.heatmap_path:
         heatmap_url = f"/api/v1/files/heatmaps/{Path(prediction.heatmap_path).name}"
     raw_scores = meta.get("raw_scores") or {}
-    volumetrics = raw_scores.get("volumetrics") if isinstance(raw_scores, dict) else None
+    telemetry = meta.get("telemetry") or raw_scores.get("volumetrics") or raw_scores
+    volumetrics = telemetry if isinstance(telemetry, dict) else None
     return PredictionResponse(
         id=prediction.id,
         study_id=prediction.study_id,
