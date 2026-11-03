@@ -207,7 +207,13 @@ export default function Analyze() {
             </div>
           </div>
           {error && (
-            <div className="bg-rose-50 border border-rose-200 text-rose-700 text-sm rounded-xl p-3">{error}</div>
+            <div className="bg-rose-50 border border-rose-200 text-rose-800 text-sm rounded-xl p-3.5 flex items-start gap-2.5 animate-fade-in">
+              <span className="text-lg leading-none">🚫</span>
+              <div>
+                <p className="font-semibold text-rose-900">{error.includes('rejected') || error.includes('Invalid') || error.includes('photograph') ? 'Authenticity Guard: Image Rejected' : 'Validation Error'}</p>
+                <p className="text-xs text-rose-700 mt-0.5 leading-relaxed">{error}</p>
+              </div>
+            </div>
           )}
           <button onClick={handleAnalyze} disabled={loading || !file}
             className="btn-primary w-full py-3 text-base">
@@ -297,11 +303,12 @@ export default function Analyze() {
                     {prediction.modality_validation.warning}
                   </div>
                 )}
-                {prediction.primary_label === 'Modality Mismatch' && (
+                {(prediction.primary_label === 'Modality Mismatch' || prediction.primary_label === 'Invalid Image Rejected') && (
                   <div className="mt-4 text-sm bg-rose-50 border border-rose-200 text-rose-800 rounded-xl px-4 py-3">
-                    {prediction?.modality_validation?.warning
+                    {prediction?.rejection_reason
+                      || prediction?.modality_validation?.warning
                       || prediction?.report_extra
-                      || 'The uploaded scan does not match the selected modality. Please select the correct organ/modality and try again.'}
+                      || 'The uploaded scan does not match the selected modality or was rejected as a non-medical image.'}
                   </div>
                 )}
               </div>

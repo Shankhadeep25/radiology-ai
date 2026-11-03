@@ -57,6 +57,13 @@ def save_upload(file: UploadFile, patient_id: int, db: Session, user: User | Non
     with dest.open("wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
+    # Image authenticity and non-medical image verification
+    from validator import verify_medical_image
+    is_valid, reject_reason, _ = verify_medical_image(dest, modality)
+    if not is_valid:
+        dest.unlink(missing_ok=True)
+        raise ValueError(reject_reason)
+
     # Encrypt at rest
     if settings.encrypt_uploads:
         dest = encrypt_file(dest)

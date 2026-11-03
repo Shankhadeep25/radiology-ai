@@ -93,6 +93,8 @@ def run_full_analysis(
     readable, temp_file = _resolve_image_path(image_path)
     try:
         prediction = run_modality_inference(readable, modality, original_filename)
+        if not prediction.get("is_valid", True) or prediction.get("primary_label") == "Invalid Image Rejected":
+            raise ValueError(prediction.get("rejection_reason") or "Uploaded file is not a valid medical scan.")
         processed = preprocess_image(readable)
         effective_modality = prediction.get("modality", "XR")
 
