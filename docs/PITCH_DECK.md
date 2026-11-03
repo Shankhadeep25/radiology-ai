@@ -1,4 +1,4 @@
-# 12-Slide PPT Outline — SIH Internal Round
+# 12-Slide PPT Outline — Clinical Presentation Outline
 
 **Title:** Radiology AI Assistant — Explainable Multi-Modality Clinical Decision Support
 
@@ -10,7 +10,7 @@ Copy each slide into PowerPoint. Demo X-ray live; show CT/MRI/US as architecture
 **Radiology AI Assistant**  
 Computer vision platform with PACS integration and explainable imaging analytics  
 
-Team | SIH Internal 2026  
+Team | Radiology AI 2026  
 *Assists radiologists. Does not replace them.*
 
 ---

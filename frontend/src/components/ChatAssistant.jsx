@@ -74,7 +74,7 @@ export default function ChatAssistant({ studyContext = null }) {
     <>
       {open && (
         <div
-          className="fixed inset-0 z-[90] bg-slate-900/20 backdrop-blur-[2px] md:hidden"
+          className="fixed inset-0 z-[90] bg-slate-900/20 md:hidden"
           onClick={() => setOpen(false)}
           aria-hidden="true"
         />
@@ -122,10 +122,10 @@ export default function ChatAssistant({ studyContext = null }) {
               {loading && (
                 <div className="flex justify-start">
                   <div className="bg-white border border-slate-200 rounded-2xl rounded-bl-md px-4 py-3 shadow-sm">
-                    <div className="flex gap-1">
-                      <span className="w-2 h-2 rounded-full bg-cyan-500 animate-bounce" />
-                      <span className="w-2 h-2 rounded-full bg-violet-500 animate-bounce" style={{ animationDelay: '150ms' }} />
-                      <span className="w-2 h-2 rounded-full bg-pink-500 animate-bounce" style={{ animationDelay: '300ms' }} />
+                    <div className="flex items-center gap-1.5 py-0.5">
+                      <span className="w-2 h-2 rounded-full bg-cyan-600 opacity-90" />
+                      <span className="w-2 h-2 rounded-full bg-cyan-600 opacity-60" />
+                      <span className="w-2 h-2 rounded-full bg-cyan-600 opacity-30" />
                     </div>
                   </div>
                 </div>
@@ -175,10 +175,10 @@ export default function ChatAssistant({ studyContext = null }) {
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
-          className={`pointer-events-auto flex items-center gap-2 rounded-full shadow-lg transition-all duration-300 ${
+          className={`pointer-events-auto flex items-center gap-2 rounded-full shadow-lg transition-colors ${
             open
               ? 'bg-slate-800 text-white px-4 py-3'
-              : 'bg-gradient-to-r from-cyan-600 to-violet-600 text-white px-5 py-3.5 hover:shadow-xl hover:scale-105'
+              : 'bg-gradient-to-r from-cyan-600 to-violet-600 text-white px-5 py-3 hover:opacity-95'
           }`}
           aria-label={open ? 'Close assistant' : 'Open AI assistant'}
         >

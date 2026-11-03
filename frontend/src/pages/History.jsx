@@ -15,7 +15,7 @@ export default function History() {
         <p className="page-subtitle">All analyzed chest X-ray studies</p>
       </div>
 
-      <div className="card overflow-x-auto animate-fade-in-up">
+      <div className="card overflow-x-auto">
         <table className="w-full text-sm table-glass">
           <thead>
             <tr>
@@ -42,7 +42,7 @@ export default function History() {
                   {h.confidence > 0 ? (
                     <div className="flex items-center gap-2">
                       <div className="w-20 h-2 bg-slate-200 rounded-full overflow-hidden">
-                        <div className="h-full bg-gradient-to-r from-cyan-400 to-violet-500 rounded-full"
+                        <div className="h-full bg-cyan-600 rounded-full"
                           style={{ width: `${h.confidence * 100}%` }} />
                       </div>
                       <span className="text-slate-600">{(h.confidence * 100).toFixed(1)}%</span>

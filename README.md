@@ -2,7 +2,7 @@
 
 **Explainable AI Clinical Decision Support for Chest X-Ray Analysis**
 
-An SIH-ready radiology assistant that detects pneumonia from chest X-rays using pretrained DenseNet121, provides Grad-CAM explainability, generates structured radiology reports, and presents everything in a polished doctor dashboard.
+An advanced clinical decision support radiology assistant that detects pneumonia from chest X-rays using pretrained DenseNet121, provides Grad-CAM explainability, generates structured radiology reports, and presents everything in a polished doctor dashboard.
 
 ## Features
 
@@ -118,4 +118,4 @@ python train.py --epochs 10 --batch-size 32
 
 ## License
 
-MIT — Built for SIH Smart India Hackathon 2026
+MIT License

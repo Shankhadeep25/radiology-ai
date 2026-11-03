@@ -127,7 +127,7 @@ export default function Analyze() {
       const { data: analysis } = await studies.predict(upload.study_id)
 
       setPipelineStep(4) // Step 4: Grad-CAM & Telemetry Extraction
-      await new Promise(r => setTimeout(r, 250))
+      await new Promise(r => setTimeout(r, 100))
 
       setPipelineStep(5) // Step 5: Clinical Report Finalization
       setResult(analysis)
@@ -144,8 +144,8 @@ export default function Analyze() {
   const tel = prediction?.volumetrics || {}
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 stagger-1">
+    <div className="space-y-6">
+      <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
         <div>
           <h2 className="page-title">Multi-Modality AI Diagnostic System</h2>
           <p className="page-subtitle">DenseNet121 Chest Radiography · 3D CT Volumetrics · MRI Symmetry · US BI-RADS</p>
@@ -156,7 +156,7 @@ export default function Analyze() {
             <button
               key={d.sample}
               onClick={() => loadDemoCase(d)}
-              className="text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:border-cyan-400 hover:text-cyan-600 transition-all shadow-sm">
+              className="text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:border-cyan-400 hover:text-cyan-600 transition-colors shadow-xs">
               {d.label}
             </button>
           ))}
@@ -166,7 +166,7 @@ export default function Analyze() {
       <PipelineSteps currentStep={pipelineStep} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="card space-y-5 stagger-2">
+        <div className="card space-y-5">
           <h3 className="font-display font-semibold text-slate-900 border-b border-slate-100 pb-3">Patient & Study Intake</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
@@ -188,9 +188,9 @@ export default function Analyze() {
                   key={m.id}
                   type="button"
                   onClick={() => setModality(m.id)}
-                  className={`p-3 rounded-xl border text-left transition-all ${
+                  className={`p-3 rounded-xl border text-left transition-colors ${
                     modality === m.id
-                      ? 'border-cyan-500 bg-cyan-50/70 shadow-sm ring-1 ring-cyan-500/30'
+                      ? 'border-cyan-500 bg-cyan-50/70 shadow-xs ring-1 ring-cyan-500/30'
                       : 'border-slate-200 bg-slate-50 hover:border-cyan-300'
                   }`}>
                   <p className="font-semibold text-slate-800">{m.label}</p>
@@ -201,14 +201,14 @@ export default function Analyze() {
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Scan (PNG / JPG / DICOM)</label>
-            <div className={`border-2 border-dashed rounded-2xl p-4 text-center transition-all duration-300 ${
-              preview ? 'border-cyan-400/50 bg-cyan-50' : 'border-slate-300 hover:border-cyan-400/40 bg-slate-50'
+            <div className={`border-2 border-dashed rounded-2xl p-4 text-center transition-colors ${
+              preview ? 'border-cyan-400 bg-cyan-50/50' : 'border-slate-300 hover:border-cyan-400 bg-slate-50'
             }`}>
               <input type="file" accept=".png,.jpg,.jpeg,.dcm,.dicom" onChange={handleFileChange}
                 className="hidden" id="file-upload" />
               <label htmlFor="file-upload" className="cursor-pointer block">
                 {preview ? (
-                  <img src={preview} alt="Preview" className="max-h-56 mx-auto rounded-xl shadow-glass" />
+                  <img src={preview} alt="Preview" className="max-h-56 mx-auto rounded-xl shadow-xs" />
                 ) : (
                   <div className="text-slate-500 py-8">
                     <svg className="w-12 h-12 mx-auto mb-2 text-cyan-400/50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -226,20 +226,20 @@ export default function Analyze() {
             <div className="bg-rose-50 border border-rose-200 text-rose-700 text-sm rounded-xl p-3">{error}</div>
           )}
           <button onClick={handleAnalyze} disabled={loading || !file}
-            className="btn-primary w-full py-3.5 text-base">
+            className="btn-primary w-full py-3 text-base">
             {loading ? (
               <span className="flex items-center justify-center gap-2">
                 <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                 Executing AI Diagnostic Pipeline...
               </span>
-            ) : 'Run AI Analysis ⚡'}
+            ) : 'Run AI Analysis'}
           </button>
         </div>
 
-        <div className="space-y-4 stagger-3">
+        <div className="space-y-4">
           {!result ? (
             <div className="card min-h-[400px] flex items-center justify-center">
-              <div className="text-center text-slate-500 max-w-xs animate-pulse-soft">
+              <div className="text-center text-slate-500 max-w-xs">
                 <div className="w-20 h-20 bg-gradient-to-br from-cyan-100 to-violet-100 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-slate-200">
                   <svg className="w-10 h-10 text-cyan-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1}
@@ -252,7 +252,7 @@ export default function Analyze() {
             </div>
           ) : (
             <>
-              <div className={`card card-glow animate-fade-in-up ${
+              <div className={`card card-glow ${
                 prediction.primary_label.includes('Normal') || prediction.primary_label.includes('No Acute') || prediction.primary_label.includes('Negative')
                   ? 'border-emerald-300 bg-emerald-50'
                   : 'border-rose-300 bg-rose-50'
@@ -282,28 +282,28 @@ export default function Analyze() {
 
                 {tel?.anatomical_location && (
                   <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
-                    <span className="bg-sky-100 text-sky-800 border border-sky-300 rounded-lg px-2.5 py-1 font-semibold flex items-center gap-1 shadow-xs">
+                    <span className="bg-sky-100 text-sky-800 border border-sky-300 rounded-lg px-2.5 py-1 font-semibold flex items-center gap-1 select-none">
                       📍 {tel.anatomical_location}
                     </span>
                     {tel.diameter_mm > 0 && (
-                      <span className="bg-slate-100 text-slate-800 border border-slate-300 rounded-lg px-2.5 py-1 font-medium">
+                      <span className="bg-slate-100 text-slate-800 border border-slate-300 rounded-lg px-2.5 py-1 font-medium select-none">
                         📏 ~{tel.diameter_mm} mm span
-                      </span>
+                    </span>
                     )}
                     {tel.volume_mm3 > 0 && (
-                      <span className="bg-slate-100 text-slate-800 border border-slate-300 rounded-lg px-2.5 py-1 font-medium">
+                      <span className="bg-slate-100 text-slate-800 border border-slate-300 rounded-lg px-2.5 py-1 font-medium select-none">
                         🧊 {tel.volume_mm3} mm³ ({tel.mass_g} g mass)
-                      </span>
+                    </span>
                     )}
                     {tel.volume_ml > 0 && (
-                      <span className="bg-slate-100 text-slate-800 border border-slate-300 rounded-lg px-2.5 py-1 font-medium">
+                      <span className="bg-slate-100 text-slate-800 border border-slate-300 rounded-lg px-2.5 py-1 font-medium select-none">
                         🧊 {tel.volume_ml} mL volume ({tel.mass_g} g)
-                      </span>
+                    </span>
                     )}
                     {tel.birads && (
-                      <span className="bg-purple-100 text-purple-800 border border-purple-300 rounded-lg px-2.5 py-1 font-bold">
+                      <span className="bg-purple-100 text-purple-800 border border-purple-300 rounded-lg px-2.5 py-1 font-bold select-none">
                         🏷️ {tel.birads}
-                      </span>
+                    </span>
                     )}
                   </div>
                 )}
@@ -323,16 +323,16 @@ export default function Analyze() {
               </div>
 
               {prediction.heatmap_url && (
-                <div className="card animate-fade-in-up">
+                <div className="card">
                   <h3 className="font-display font-semibold text-slate-900 mb-1">Explainability — Neural Grad-CAM</h3>
                   <p className="text-xs text-slate-500 mb-3">Targeted backpropagation highlights image regions that triggered this diagnosis</p>
                   <img src={prediction.heatmap_url} alt="Grad-CAM"
-                    className="w-full rounded-xl border border-slate-200 shadow-sm" />
+                    className="w-full rounded-xl border border-slate-200 shadow-xs" />
                 </div>
               )}
 
               {study && (
-                <div className="card animate-fade-in-up">
+                <div className="card">
                   <DicomViewer
                     studyId={study.id}
                     fileType={study.file_type}
@@ -352,7 +352,7 @@ export default function Analyze() {
               )}
 
               {report && (
-                <div className="card bg-slate-50 animate-fade-in-up">
+                <div className="card bg-slate-50">
                   <div className="flex items-center justify-between mb-4">
                     <div>
                       <h3 className="font-display font-semibold text-slate-900">Dynamic Clinical Report</h3>
@@ -360,7 +360,7 @@ export default function Analyze() {
                     </div>
                     {report.pdf_url && (
                       <a href={report.pdf_url} target="_blank" rel="noopener noreferrer"
-                        className="btn-primary text-sm shadow-sm flex items-center gap-1.5">
+                        className="btn-primary text-sm shadow-xs flex items-center gap-1.5">
                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                         </svg>
