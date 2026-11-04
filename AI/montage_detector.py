@@ -26,20 +26,18 @@ def detect_montage_grid(gray: np.ndarray) -> tuple[bool, dict[str, Any]]:
     col_means = np.mean(gray, axis=0)
     img_mean = float(np.mean(gray))
 
-    # Candidate grids: (rows, cols)
+    # Candidate grids: (rows, cols) — require true multi-slice grid (at least 2x2 = 4 slices)
     candidates = [
         (2, 4), (2, 3), (2, 2),
         (3, 4), (3, 3), (3, 2),
         (4, 4), (4, 3), (4, 2),
-        (1, 2), (1, 3), (1, 4),
-        (2, 1), (3, 1), (4, 1),
     ]
 
     best_grid = None
     max_score = 0
 
     for R, C in candidates:
-        if R * C < 2:
+        if R * C < 4:
             continue
 
         cell_h = h / R

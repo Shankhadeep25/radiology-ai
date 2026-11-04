@@ -43,26 +43,21 @@ def _count_hough_circles(gray: np.ndarray) -> int:
 
 def _is_mri_brain(gray: np.ndarray) -> tuple[bool, str]:
     """
-    Detect MRI brain scan fingerprint — works for single-slice and multi-slice collages
-    on both dark and bright (white-padded) backgrounds.
-
-    Returns (is_mri_brain: bool, reason: str).
-
-    Discriminating features (empirically derived from real sample analysis):
-      Single-slice MRI brain      : mean~62, border<25, center>100, dark>0.35, circles>=15, circ>0.70
-      Multi-slice bright collage  : mean>160, bright_ratio>0.50, circles>=30  (circ irrelevant — merged blobs)
-      Multi-slice dark collage    : mean<128, dark_ratio>0.25, circles>=30, circ<0.50 (many blobs, irregular)
-      CT chest (look-alike)       : circles~16, center~87 (dark lung airspace)
-      US breast                   : circles=1 (fan-shaped acquisition, not round)
-      Chest XR                    : circles~11, border>100 (no dark skull border)
+    Detect whether an image has the distinct fingerprint of an MRI brain scan:
+    either a multi-slice grid montage (e.g. 2x4, 2x3, 2x2) or a single-slice
+    cranial axial cross-section with high circularity and dark borders.
     """
     h, w = gray.shape[:2]
-    mean_val = float(np.mean(gray))
-    dark_ratio = float(np.mean(gray < 40))
-    bright_ratio = float(np.mean(gray > 200))
 
-    bh = max(h // 16, 4)
-    bw = max(w // 16, 4)
+    # Check 1: Multi-slice volumetric montage (e.g. 2x4, 2x3, 2x2, 3x3)
+    from montage_detector import detect_montage_grid
+    is_montage, grid_meta = detect_montage_grid(gray)
+    if is_montage and grid_meta.get("count", 0) >= 4:
+        r, c = grid_meta.get("rows"), grid_meta.get("cols")
+        return True, f"MRI multi-slice series ({r}x{c} grid, {grid_meta.get('count')} slices)"
+
+    # Check 2: Single-slice cranial MRI scan
+    bh, bw = max(h // 16, 4), max(w // 16, 4)
     border_pixels = np.concatenate([
         gray[:bh, :].ravel(), gray[-bh:, :].ravel(),
         gray[:, :bw].ravel(), gray[:, -bw:].ravel()
@@ -70,10 +65,9 @@ def _is_mri_brain(gray: np.ndarray) -> tuple[bool, str]:
     border_mean = float(np.mean(border_pixels))
     center = gray[h // 4: 3 * h // 4, w // 4: 3 * w // 4]
     center_mean = float(np.mean(center))
+    dark_ratio = float(np.mean(gray < 40))
 
-    # Whole-image circularity on the original gray (dark-bg) or inverted (bright-bg)
-    work = gray if mean_val < 128 else (255 - gray)
-    _, th = cv2.threshold(work, 30, 255, cv2.THRESH_BINARY)
+    _, th = cv2.threshold(gray, 35, 255, cv2.THRESH_BINARY)
     cnts, _ = cv2.findContours(th, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     circ = 0.0
     if cnts:
@@ -83,37 +77,14 @@ def _is_mri_brain(gray: np.ndarray) -> tuple[bool, str]:
         if p > 0:
             circ = float(4 * np.pi * a / (p ** 2))
 
-    n_circles = _count_hough_circles(gray)
-
-    # --- Case 1: Bright-background multi-slice collage (white-padded contact sheet) ---
-    # Key signal: many Hough circles (8+ brain slices each contribute 5-6 detected circles).
-    # XR has ~11, CT ~16, US ~1. Brain collages have 30-55.
-    # NOTE: overall circularity is NOT reliable here — merged blobs give low circ.
-    if mean_val > 160 and bright_ratio > 0.50 and n_circles >= 30:
+    # Single-slice MRI cranial cross section:
+    # 1. Scanner dark background surrounding the skull on all 4 borders: border_mean < 25.0
+    # 2. Elliptical/circular cranial skull outline: circ >= 0.60
+    # 3. High attenuation of brain parenchyma: center_mean >= 100.0 (CT lung is ~87)
+    # 4. Scanner background air: dark_ratio >= 0.35
+    if (border_mean < 25.0 and circ >= 0.60 and center_mean >= 100.0 and dark_ratio >= 0.35):
         return True, (
-            f"MRI brain collage (bright bg) detected: {n_circles} circular brain structures, "
-            f"mean={mean_val:.0f}"
-        )
-
-    # --- Case 2: Dark-background multi-slice collage ---
-    # Many circular structures but on a dark background.
-    # Circ is low because individual brain ovals merge into an irregular mass.
-    # Distinguishes from single-slice MRI by having many circles but low composite circularity.
-    if mean_val < 128 and dark_ratio > 0.25 and n_circles >= 30 and circ < 0.55:
-        return True, (
-            f"MRI brain collage (dark bg) detected: {n_circles} circular brain structures, "
-            f"mean={mean_val:.0f}, dark_ratio={dark_ratio:.2f}"
-        )
-
-    # --- Case 3: Standard dark-background single-slice MRI ---
-    # Characteristics: very dark border (skull surround), bright center (grey matter),
-    # high circularity of brain oval, significant dark background ratio, many circular structures.
-    # Key CT differentiator: CT center_mean~87 (dark lung airspace), MRI center_mean~129 (bright grey matter).
-    if (dark_ratio >= 0.35 and border_mean < 25 and center_mean > 100
-            and circ >= 0.70 and n_circles >= 15):
-        return True, (
-            f"MRI brain single-slice detected: border={border_mean:.0f}, center={center_mean:.0f}, "
-            f"circ={circ:.2f}, circles={n_circles}"
+            f"MRI brain single-slice scan (circularity={circ:.2f}, center density={center_mean:.1f})"
         )
 
     return False, ""
@@ -257,8 +228,8 @@ def verify_medical_image(
         r = raw_bgr[:, :, 2].astype(np.float32)
         channel_disparity = float(np.mean(np.abs(r - g) + np.abs(g - b) + np.abs(b - r)))
 
-        sat_threshold = 30.0 if expected_modality in ("US", "MR") else 18.0
-        disp_threshold = 40.0 if expected_modality == "MR" else (24.0 if expected_modality == "US" else 14.0)
+        sat_threshold = 28.0 if expected_modality in ("US", "MR") else 18.0
+        disp_threshold = 24.0 if expected_modality in ("US", "MR") else 14.0
 
         if mean_sat > sat_threshold or channel_disparity > disp_threshold:
             telemetry = {
@@ -330,58 +301,102 @@ def verify_medical_image(
         if not is_xray:
             return False, reason, telemetry
 
-    elif expected_modality == "MR":
-        # MRI Brain: check for single-slice circularity OR multi-slice montage.
-        # First, run the MRI fingerprint detection (already computed above).
-        if is_mri_brain:
-            # Confirmed MRI brain — check if it's a montage or single slice
-            from montage_detector import detect_montage_grid
-            is_montage, grid_meta = detect_montage_grid(gray)
-            if is_montage:
-                telemetry["is_multi_slice_montage"] = True
-                telemetry["montage_grid"] = grid_meta
-                return True, f"Verified as a multi-slice volumetric MRI montage ({grid_meta['rows']}x{grid_meta['cols']} grid, {grid_meta['count']} slices).", telemetry
-            else:
-                # Single-slice MRI confirmed by fingerprint — also do circularity check
-                _, thresh = cv2.threshold(gray, 40, 255, cv2.THRESH_BINARY)
-                contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                circ = 0.0
-                if contours:
-                    c = max(contours, key=cv2.contourArea)
-                    area = cv2.contourArea(c)
-                    perim = cv2.arcLength(c, True)
-                    circ = float(4 * np.pi * area / (perim ** 2 + 1e-5))
-                telemetry["cranial_circularity"] = round(circ, 3)
-                return True, "Verified as MRI Brain scan.", telemetry
-        else:
-            # Not confirmed by fingerprint — try legacy circularity check + montage fallback
-            _, thresh = cv2.threshold(gray, 40, 255, cv2.THRESH_BINARY)
-            contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            circ = 0.0
-            if contours:
-                c = max(contours, key=cv2.contourArea)
-                area = cv2.contourArea(c)
-                perim = cv2.arcLength(c, True)
-                circ = float(4 * np.pi * area / (perim ** 2 + 1e-5))
-            telemetry["cranial_circularity"] = round(circ, 3)
+    elif expected_modality == "CT":
+        # CT Chest: Axial cross-section within circular scanner bore
+        _, thresh = cv2.threshold(gray, 35, 255, cv2.THRESH_BINARY)
+        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        circ = 0.0
+        if contours:
+            c = max(contours, key=cv2.contourArea)
+            area = cv2.contourArea(c)
+            p = cv2.arcLength(c, True)
+            if p > 0:
+                circ = float(4 * np.pi * area / (p ** 2 + 1e-5))
+        telemetry["gantry_circularity"] = round(circ, 3)
 
-            if circ >= 0.50:
-                return True, "Verified as MRI Brain scan (circularity check passed).", telemetry
+        bh = max(h // 16, 4)
+        bw = max(w // 16, 4)
+        border_mean = float(np.mean([gray[:bh, :].mean(), gray[-bh:, :].mean(), gray[:, :bw].mean(), gray[:, -bw:].mean()]))
+        telemetry["border_density"] = round(border_mean, 1)
 
-            # Try montage detection as last resort
-            from montage_detector import detect_montage_grid
-            is_montage, grid_meta = detect_montage_grid(gray)
-            if is_montage:
-                telemetry["is_multi_slice_montage"] = True
-                telemetry["montage_grid"] = grid_meta
-                return True, f"Verified as a multi-slice volumetric MRI montage ({grid_meta['rows']}x{grid_meta['cols']} grid, {grid_meta['count']} slices).", telemetry
-
+        if circ < 0.50 or border_mean > 35.0:
             return (
                 False,
-                f"Image rejected: Does not match MRI brain scan characteristics "
-                f"(circularity={circ:.2f} < 0.50, MRI fingerprint not detected). "
-                f"Please upload a brain MRI scan.",
+                f"Image rejected: Does not match axial CT chest cross-section geometry "
+                f"(circularity={circ:.2f} < 0.50, border density={border_mean:.1f}). "
+                f"Natural photographs, portraits, or non-CT images are not supported.",
                 telemetry,
             )
+
+    elif expected_modality == "US":
+        # Ultrasound Breast: must exhibit diagnostic acoustic boundary and speckle texture
+        grad = cv2.Sobel(gray, cv2.CV_64F, 1, 1, ksize=3)
+        smooth_frac = float(np.mean(np.abs(grad) < 10))
+        dark_ratio = float(np.mean(gray < 40))
+        bh = max(h // 16, 4)
+        bw = max(w // 16, 4)
+        border_mean = float(np.mean([gray[:bh, :].mean(), gray[-bh:, :].mean(), gray[:, :bw].mean(), gray[:, -bw:].mean()]))
+
+        telemetry["acoustic_speckle_smoothness"] = round(smooth_frac, 3)
+        telemetry["border_density"] = round(border_mean, 1)
+
+        if smooth_frac > 0.72:
+            return (
+                False,
+                f"Image rejected: Does not exhibit diagnostic ultrasound acoustic speckle texture "
+                f"(smooth ratio={smooth_frac:.2f} > 0.72). "
+                f"Natural photographs, portraits, and diagrams are not supported.",
+                telemetry,
+            )
+        if dark_ratio < 0.15 or border_mean > 80.0:
+            return (
+                False,
+                f"Image rejected: Lacks characteristic ultrasound acoustic acquisition boundary "
+                f"(dark ratio={dark_ratio:.2f}, border={border_mean:.1f}).",
+                telemetry,
+            )
+
+    elif expected_modality == "MR":
+        # MRI Brain: Must be either a multi-slice series montage OR single-slice cranial scan
+        from montage_detector import detect_montage_grid
+        is_montage, grid_meta = detect_montage_grid(gray)
+        if is_montage and grid_meta.get("count", 0) >= 4:
+            telemetry["is_multi_slice_montage"] = True
+            telemetry["montage_grid"] = grid_meta
+            return True, f"Verified as a multi-slice volumetric MRI montage ({grid_meta['rows']}x{grid_meta['cols']} grid, {grid_meta['count']} slices).", telemetry
+
+        # Single slice MRI cranial geometry check
+        _, thresh = cv2.threshold(gray, 35, 255, cv2.THRESH_BINARY)
+        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        circ = 0.0
+        if contours:
+            c = max(contours, key=cv2.contourArea)
+            area = cv2.contourArea(c)
+            p = cv2.arcLength(c, True)
+            if p > 0:
+                circ = float(4 * np.pi * area / (p ** 2 + 1e-5))
+        telemetry["cranial_circularity"] = round(circ, 3)
+
+        bh = max(h // 16, 4)
+        bw = max(w // 16, 4)
+        border_mean = float(np.mean([gray[:bh, :].mean(), gray[-bh:, :].mean(), gray[:, :bw].mean(), gray[:, -bw:].mean()]))
+        center_mean = float(np.mean(gray[h // 4: 3 * h // 4, w // 4: 3 * w // 4]))
+
+        if circ < 0.50:
+            return (
+                False,
+                f"Image rejected: Does not match oval/circular cranial geometry of an MRI brain scan "
+                f"(circularity={circ:.2f} < 0.50). Natural photographs, portraits, or non-MRI images cannot be analyzed as MRI.",
+                telemetry,
+            )
+        if border_mean >= 30.0 or center_mean < 100.0:
+            return (
+                False,
+                f"Image rejected: Lacks characteristic MRI cranial tissue attenuation "
+                f"(center density={center_mean:.1f} < 100.0, border={border_mean:.1f} >= 30.0).",
+                telemetry,
+            )
+
+        return True, "Verified as MRI Brain scan.", telemetry
 
     return True, "Image verified as a genuine medical scan.", telemetry

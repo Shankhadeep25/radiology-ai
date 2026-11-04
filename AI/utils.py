@@ -106,7 +106,9 @@ def classify_image_anatomy(gray: np.ndarray) -> dict[str, Any]:
         )
 
     us_breast = 0.0
-    if speckle > 0.45 and dark_ratio > 0.15:
+    _grad = cv2.Sobel(roi, cv2.CV_64F, 1, 1, ksize=3)
+    _smooth = float(np.mean(np.abs(_grad) < 10))
+    if speckle > 0.45 and dark_ratio > 0.15 and _smooth <= 0.70:
         us_breast = min(1.0, (speckle - 0.40) * 0.8 + (dark_ratio * 0.5) + (std / 100.0) * 0.3)
 
     ct_chest = 0.0
