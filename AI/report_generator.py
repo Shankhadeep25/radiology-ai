@@ -45,6 +45,85 @@ MODALITY_TECHNIQUES = {
 }
 
 
+def determine_severity(
+    primary_label: str,
+    confidence: float,
+    telemetry: dict[str, Any] | None = None,
+    modality: str = "XR",
+) -> str | None:
+    """
+    Dynamic clinical severity scoring (Mild, Moderate, Severe, Critical)
+    synthesizing multi-label risk, pathology acuity, and volumetric measurements.
+    """
+    if any(norm in primary_label for norm in ("Normal", "No Acute", "Negative")):
+        return None
+
+    tel = telemetry or {}
+    diam = float(tel.get("diameter_mm") or 0.0)
+    vol_mm3 = float(tel.get("volume_mm3") or 0.0)
+    vol_ml = float(tel.get("volume_ml") or (vol_mm3 / 1000.0 if vol_mm3 else 0.0))
+    shift_mm = float(tel.get("midline_shift_mm") or 0.0)
+    birads = str(tel.get("birads") or "").upper()
+
+    # High-acuity / Critical life-threatening emergencies
+    if "Pneumothorax" in primary_label:
+        return "critical" if (confidence > 0.85 or diam > 25.0) else "severe"
+    if shift_mm >= 5.0 or "Herniation" in primary_label:
+        return "critical"
+    if "BI-RADS 5" in birads:
+        return "severe"
+
+    # Multi-modality volumetric & morphological calibration
+    if modality == "CT":
+        fleischner = str(tel.get("fleischner_category") or "")
+        if diam >= 15.0 or vol_mm3 >= 1500.0 or "High Risk" in fleischner:
+            return "severe"
+        if diam >= 8.0 or vol_mm3 >= 500.0 or confidence >= 0.75:
+            return "moderate"
+        return "mild"
+
+    if modality == "MR":
+        if vol_ml >= 15.0 or shift_mm >= 3.0 or confidence >= 0.85:
+            return "severe"
+        if vol_ml >= 5.0 or shift_mm >= 1.0 or confidence >= 0.65:
+            return "moderate"
+        return "mild"
+
+    if modality == "US":
+        if "BI-RADS 4" in birads or "BI-RADS 5" in birads:
+            return "severe" if (confidence >= 0.80 or diam >= 20.0) else "moderate"
+        if "BI-RADS 3" in birads:
+            return "moderate"
+        return "mild"
+
+    # Default Thoracic Radiograph (XR)
+    opacity_pct = float(tel.get("lung_field_opacity_pct") or 0.0)
+    if confidence >= 0.82 or diam >= 35.0 or opacity_pct >= 25.0:
+        return "severe"
+    if confidence >= 0.62 or diam >= 18.0 or opacity_pct >= 10.0:
+        return "moderate"
+    return "mild"
+
+
+def format_impression(
+    modality: str,
+    primary_label: str,
+    confidence: float,
+    severity: str | None = None,
+    all_findings: list[dict] | None = None,
+    telemetry: dict[str, Any] | None = None,
+) -> str:
+    """Public clinical impression formatter adhering to ACR reporting conventions."""
+    return _build_dynamic_impression(
+        modality=modality,
+        primary_label=primary_label,
+        confidence=confidence,
+        severity=severity,
+        all_findings=all_findings,
+        telemetry=telemetry,
+    )
+
+
 def _build_dynamic_findings(
     modality: str,
     primary_label: str,
@@ -55,12 +134,14 @@ def _build_dynamic_findings(
 ) -> str:
     """Build dynamic, data-driven medical findings tailored to detected anatomy and metrics."""
     tel = telemetry or {}
-    loc = tel.get("anatomical_location") or "the lung field"
+    loc = tel.get("anatomical_location") or "the visualized field"
     diam = tel.get("diameter_mm")
     vol_mm3 = tel.get("volume_mm3")
     vol_ml = tel.get("volume_ml")
     mass_g = tel.get("mass_g")
     birads = tel.get("birads") or "BI-RADS 4"
+    montage = tel.get("montage_detected", False)
+    montage_note = " <i>[Multi-slice volumetric montage reconstruction screened].</i>" if montage else ""
 
     # Secondary conditions from model
     secondary = []
@@ -75,18 +156,21 @@ def _build_dynamic_findings(
     if modality == "CT":
         if "No Acute" in primary_label or "Normal" in primary_label:
             return (
-                "PARENCHYMA: Thin-section axial CT evaluation demonstrates no discrete pulmonary nodule "
-                "measuring greater than 4 mm. The bronchial tree and pulmonary vasculature taper normally "
-                "without evidence of architectural distortion, emphysema, or interstitial thickening.<br/>"
-                "PLEURA: Pleural spaces are clear bilaterally with no pleural effusion or pneumothorax.<br/>"
-                "MEDIASTINUM: Mediastinal and hilar contours are unremarkable; no pathologically enlarged lymph nodes."
+                f"PARENCHYMA: Thin-section axial CT evaluation demonstrates no discrete pulmonary nodule "
+                f"measuring greater than 4 mm.{montage_note} The bronchial tree and pulmonary vasculature taper normally "
+                f"without evidence of architectural distortion, emphysema, or interstitial thickening.<br/>"
+                f"PLEURA: Pleural spaces are clear bilaterally with no pleural effusion or pneumothorax.<br/>"
+                f"MEDIASTINUM: Mediastinal and hilar contours are unremarkable; no pathologically enlarged lymph nodes."
             )
-        d_str = f"measuring approximately {diam} mm" if diam else "discrete focal morphology"
-        v_str = f" Integrated 3D voxel volume is {vol_mm3} mm³ with an estimated mass of {mass_g} g." if vol_mm3 else ""
+        d_str = f"measuring approximately {diam} mm in maximal dimension" if diam else "discrete focal morphology"
+        v_str = f" Integrated 3D voxel volume is {vol_mm3} mm³ with an estimated physical mass of {mass_g} g." if vol_mm3 else ""
+        fleischner_cat = tel.get("fleischner_category")
+        f_note = f" Categorized under Fleischner 2017 criteria as: <b>{fleischner_cat}</b>." if fleischner_cat else ""
+        spic = tel.get("spiculation_score")
+        s_note = f" Nodule margin exhibits an automated spiculation score of {spic:.2f}." if spic is not None else " Margins show mild lobulation without central cavitation."
         return (
-            f"PARENCHYMA: A solid, non-calcified pulmonary nodule is identified within the {loc}, {d_str}.{v_str} "
-            f"The margins show mild lobulation without gross central cavitation. Surrounding lung parenchyma "
-            f"demonstrates preserved attenuation without consolidation or ground-glass opacities.{sec_text}<br/>"
+            f"PARENCHYMA: A solid, non-calcified pulmonary nodule is identified within the {loc}, {d_str}.{v_str}{s_note}{f_note}{montage_note} "
+            f"Surrounding lung parenchyma demonstrates preserved attenuation without dense consolidation or honeycombing.{sec_text}<br/>"
             f"AIRWAYS: Trachea and mainstem bronchi are patent.<br/>"
             f"PLEURA & MEDIASTINUM: No pleural effusion or mediastinal lymphadenopathy. Follow-up per Fleischner Society guidelines is indicated."
         )
@@ -94,18 +178,27 @@ def _build_dynamic_findings(
     if modality == "MR":
         if "No Acute" in primary_label or "Normal" in primary_label:
             return (
-                "BRAIN PARENCHYMA: Normal gray-white matter differentiation is preserved throughout both cerebral hemispheres. "
-                "No focal hyperintense lesion, acute territorial infarction, intracranial hemorrhage, or abnormal mass effect is identified.<br/>"
-                "VENTRICULAR SYSTEM: Lateral, third, and fourth ventricles are normal in size and symmetric. Basal cisterns and cortical sulci are unremarkable.<br/>"
-                "CRANIAL VAULT: The calvarium and visualised skull base structures are intact."
+                f"BRAIN PARENCHYMA: Normal gray-white matter differentiation is preserved throughout both cerebral hemispheres.{montage_note} "
+                f"No focal hyperintense lesion, acute territorial infarction, intracranial hemorrhage, or abnormal mass effect is identified.<br/>"
+                f"VENTRICULAR SYSTEM: Lateral, third, and fourth ventricles are normal in size and symmetric; midline structures are anatomically centered.<br/>"
+                f"CRANIAL VAULT: The calvarium and visualized skull base structures are intact."
             )
         v_str = f"estimated volume of {vol_ml} mL and calculated mass of {mass_g} g" if vol_ml else "distinct mass-effect morphology"
+        shift_val = tel.get("midline_shift_mm", 0.0)
+        shift_note = (
+            f" Significant midline shift of <b>{shift_val} mm</b> is demonstrated toward the contralateral hemisphere."
+            if shift_val > 0.5
+            else " Midline structures remain centered without gross subfalcine herniation."
+        )
+        edema = tel.get("edema_severity")
+        edema_note = f" Associated {edema} perilesional vasogenic edema is prominent on T2/FLAIR sequences." if edema else " Surrounding T2/FLAIR hyperintensity is consistent with vasogenic perilesional edema."
+        hemisphere = tel.get("hemisphere")
+        hemi_str = f" centered in the {hemisphere} hemisphere ({loc})" if hemisphere else f" in the {loc}"
         return (
-            f"BRAIN PARENCHYMA: An abnormal mass-like lesion is visualized in the {loc} with an {v_str}. "
-            f"There is associated surrounding hyperintensity on T2/FLAIR sequences consistent with vasogenic perilesional edema. "
-            f"Local effacement of regional cortical sulci is noted.{sec_text}<br/>"
-            f"VENTRICULAR SYSTEM: Mild local mass effect on the adjacent ventricular contour without gross midline shift or herniation.<br/>"
-            f"EXTRA-AXIAL: No evidence of acute extra-axial hematoma. Urgent contrast-enhanced MRI is recommended for further characterization."
+            f"BRAIN PARENCHYMA: An abnormal mass-like lesion is visualized{hemi_str} with an {v_str}.{edema_note}{shift_note}{montage_note} "
+            f"Local effacement of regional cortical sulci and compression of adjacent gray-white boundaries are noted.{sec_text}<br/>"
+            f"VENTRICULAR SYSTEM: Mass effect on the adjacent lateral ventricular contour.<br/>"
+            f"EXTRA-AXIAL: No evidence of acute extra-axial hematoma. Urgent contrast-enhanced MRI (gadolinium) is recommended."
         )
 
     if modality == "US":
@@ -115,11 +208,15 @@ def _build_dynamic_findings(
                 "with normal acoustic transmission. No solid focal mass, complex cystic lesion, or architectural distortion is identified.<br/>"
                 "RETROAREOLAR REGION: Major lactiferous ducts demonstrate normal caliber without intraductal lesion. Axillary sonography is unremarkable. Categorized as BI-RADS 1 (Negative)."
             )
+        ar = tel.get("aspect_ratio")
+        ar_str = f" (aspect ratio: {ar:.2f}, {'taller-than-wide' if ar and ar > 1.0 else 'wider-than-tall'})" if ar else ""
+        margin = tel.get("margin_type") or "indistinct"
         return (
-            f"BREAST PARENCHYMA: Targeted sonographic examination reveals a focal hypoechoic lesion in the {loc}. "
-            f"The lesion demonstrates indistinct margins and acoustic attenuation. "
+            f"BREAST PARENCHYMA: Targeted sonographic examination reveals a focal hypoechoic lesion in the {loc}, "
+            f"measuring approximately {diam or 'discrete'} mm{ar_str}. "
+            f"The lesion demonstrates {margin} margins and posterior acoustic shadowing/attenuation. "
             f"Surrounding fibroglandular tissue shows mild architectural alteration.{sec_text}<br/>"
-            f"ASSESSMENT: The sonographic morphology is categorized as {birads}. Ultrasound-guided tissue sampling is recommended for histological confirmation."
+            f"ASSESSMENT: The sonographic morphology is categorized as <b>{birads}</b>. Ultrasound-guided tissue sampling is recommended for histological confirmation."
         )
 
     # Chest X-Ray (XR)
@@ -134,8 +231,10 @@ def _build_dynamic_findings(
 
     if primary_label == "Pneumonia":
         d_str = f"measuring approximately {diam} mm in greatest span" if diam else "patchy airspace consolidation"
+        opacity = tel.get("lung_field_opacity_pct")
+        op_note = f" Quantitative lung field opacity density is estimated at {opacity:.1f}%." if opacity else ""
         return (
-            f"LUNGS: Focal airspace consolidation and patchy alveolar-interstitial opacities are demonstrated in the {loc}, {d_str}. "
+            f"LUNGS: Focal airspace consolidation and patchy alveolar-interstitial opacities are demonstrated in the {loc}, {d_str}.{op_note} "
             f"Prominent air bronchograms and localized vascular markings are noted within the affected segment. "
             f"The contralateral lung parenchyma is clear and well-aerated.{sec_text}<br/>"
             f"PLEURA: Costophrenic angles are preserved; no large pleural effusion or pneumothorax.<br/>"
@@ -197,33 +296,45 @@ def _build_dynamic_impression(
                 "2. Age-appropriate follow-up based on personal clinical risk factors."
             )
         diam = tel.get("diameter_mm") or 10.0
-        fleischner = (
-            "Recommend dedicated thin-section non-contrast CT chest at 3 months, PET-CT correlation, or biopsy "
-            if diam >= 8.0 else "Recommend follow-up low-dose CT chest in 6 to 12 months per Fleischner Society guidelines."
-        )
+        fleischner_cat = tel.get("fleischner_category")
+        if fleischner_cat:
+            fleischner = f"Management per Fleischner Society 2017: <b>{fleischner_cat}</b>."
+        elif diam >= 8.0:
+            fleischner = "Recommend dedicated thin-section non-contrast CT chest at 3 months, PET-CT correlation, or biopsy."
+        else:
+            fleischner = "Recommend follow-up low-dose CT chest in 6 to 12 months per Fleischner Society guidelines."
+
         return (
             f"1. <b>{primary_label}</b> identified in the {loc} with {conf_pct}% AI confidence{sev_str}.<br/>"
             f"2. {fleischner}<br/>"
-            f"3. Correlate with smoking history and occupational exposures."
+            f"3. Correlate with smoking history, prior baseline imaging, and occupational exposures."
         )
 
     if modality == "MR":
         if "No Acute" in primary_label:
             return "1. No acute intracranial mass lesion or midline shift on this MRI slice."
+        shift_val = float(tel.get("midline_shift_mm") or 0.0)
+        shift_action = (
+            f"<br/>3. <b>URGENT:</b> Evidence of mass effect with {shift_val} mm midline shift; immediate neurosurgical evaluation is indicated."
+            if shift_val >= 3.0
+            else "<br/>3. Neurosurgical and neuro-oncology consultation recommended."
+        )
         return (
             f"1. <b>{primary_label}</b> centered in the {loc} with {conf_pct}% AI confidence{sev_str}.<br/>"
-            "2. Associated perilesional vasogenic edema and local sulcal effacement.<br/>"
-            "3. Urgent contrast-enhanced brain MRI (gadolinium) and neurosurgical consultation recommended."
+            f"2. Associated perilesional vasogenic edema and local sulcal effacement.<br/>"
+            f"3. Urgent contrast-enhanced brain MRI (gadolinium) recommended to assess internal enhancement.{shift_action}"
         )
 
     if modality == "US":
         if "Negative" in primary_label:
-            return "1. Normal breast ultrasound — BI-RADS 1 (Negative). Routine screening."
+            return "1. Normal breast ultrasound — BI-RADS 1 (Negative). Routine age-appropriate screening."
         birads = tel.get("birads") or "BI-RADS 4"
+        ar = tel.get("aspect_ratio")
+        morph_note = " Taller-than-wide suspicious geometry noted." if ar and ar > 1.0 else ""
         return (
-            f"1. <b>{primary_label}</b> in the {loc} categorized as <b>{birads}</b> with {conf_pct}% AI confidence.<br/>"
-            "2. Targeted ultrasound-guided core needle biopsy recommended for definitive histology.<br/>"
-            "3. Clinical correlation and mammographic correlation advised."
+            f"1. <b>{primary_label}</b> in the {loc} categorized as <b>{birads}</b> with {conf_pct}% AI confidence.{morph_note}<br/>"
+            f"2. Targeted ultrasound-guided core needle biopsy recommended for histological confirmation.<br/>"
+            f"3. Diagnostic bilateral mammographic correlation and clinical breast examination advised."
         )
 
     if primary_label == "Normal":
@@ -231,7 +342,14 @@ def _build_dynamic_impression(
             "1. <b>No acute cardiopulmonary abnormality</b> (Normal chest radiograph, "
             f"{conf_pct}% AI confidence).<br/>"
             "2. Clear lung fields bilaterally without focal consolidation, pneumothorax, or effusion.<br/>"
-            "3. Clinical correlation is recommended if symptoms persist."
+            "3. Clinical correlation is recommended if acute symptoms persist."
+        )
+
+    if primary_label == "Pneumothorax":
+        return (
+            f"1. <b>Pneumothorax</b> involving the {loc} with <b>{conf_pct}%</b> AI confidence{sev_str}.<br/>"
+            "2. <b>CRITICAL ACTION:</b> Immediate clinical correlation for tension physiology. Evaluate for tube thoracostomy or needle decompression if symptomatic.<br/>"
+            "3. Obtain immediate upright or cross-table lateral radiograph post-intervention."
         )
 
     return (
@@ -326,7 +444,7 @@ def _patient_table(meta: dict, styles) -> Table:
     return table
 
 
-def _ai_summary_table(primary_label, confidence, model_version, uncertainty, telemetry) -> Table:
+def _ai_summary_table(primary_label, confidence, model_version, uncertainty, telemetry, modality="XR", severity=None) -> Table:
     tel = telemetry or {}
     loc = tel.get("anatomical_location") or "Automatic"
     diam = f"{tel.get('diameter_mm')} mm" if tel.get("diameter_mm") else "N/A"
@@ -335,6 +453,25 @@ def _ai_summary_table(primary_label, confidence, model_version, uncertainty, tel
         ["Location / Lobe", loc, "Uncertainty", (uncertainty or "Medium").upper()],
         ["Estimated Span", diam, "AI Model", (model_version or "DenseNet121-CheXNet")[:36]],
     ]
+
+    # Dynamic modality-specific clinical indices
+    if modality == "CT":
+        f_tier = str(tel.get("fleischner_category") or "Fleischner Guideline")[:26]
+        vol_str = f"{tel.get('volume_mm3', 0)} mm³" if tel.get("volume_mm3") else "Evaluated"
+        rows.append(["Fleischner Tier", f_tier, "3D Voxel Vol", vol_str])
+    elif modality == "MR":
+        shift = f"{tel.get('midline_shift_mm', 0.0)} mm" if tel.get("midline_shift_mm") is not None else "0.0 mm"
+        vol_str = f"{tel.get('volume_ml', 0)} mL" if tel.get("volume_ml") else "Calculated"
+        rows.append(["Midline Shift", shift, "Lesion Volume", vol_str])
+    elif modality == "US":
+        birads_val = str(tel.get("birads") or "BI-RADS 4")
+        ar_val = f"{tel.get('aspect_ratio', 0.0):.2f}" if tel.get("aspect_ratio") else "N/A"
+        rows.append(["BI-RADS Grade", birads_val, "Aspect Ratio", ar_val])
+    else:
+        sev_label = (severity or "Calibrated").title()
+        op_val = f"{tel.get('lung_field_opacity_pct', 0.0):.1f}%" if tel.get("lung_field_opacity_pct") else "Preserved"
+        rows.append(["Severity Level", sev_label, "Lung Opacity", op_val])
+
     table = Table(rows, colWidths=[1.4 * inch, 2.0 * inch, 1.3 * inch, 1.8 * inch])
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#eff6ff")),
@@ -396,6 +533,15 @@ def generate_report(
     telemetry: dict[str, Any] | None = None,
 ) -> dict:
     """Generate dynamic, individualized radiology report and PDF."""
+    effective_severity = severity
+    if effective_severity is None:
+        effective_severity = determine_severity(
+            primary_label=primary_label,
+            confidence=confidence,
+            telemetry=telemetry,
+            modality=modality,
+        )
+
     findings = _build_dynamic_findings(
         modality=modality,
         primary_label=primary_label,
@@ -409,7 +555,7 @@ def generate_report(
         modality=modality,
         primary_label=primary_label,
         confidence=confidence,
-        severity=severity,
+        severity=effective_severity,
         all_findings=all_findings,
         telemetry=telemetry,
     )
@@ -439,6 +585,7 @@ def generate_report(
         model_version=model_version,
         uncertainty_level=uncertainty_level,
         telemetry=telemetry,
+        severity=effective_severity,
     )
 
     return {"findings": findings, "impression": impression, "pdf_path": pdf_path}
@@ -457,6 +604,7 @@ def _export_pdf(
     model_version=None,
     uncertainty_level=None,
     telemetry=None,
+    severity=None,
 ) -> str:
     out_path = Path(output_dir) / f"report_{study_id}.pdf"
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -482,7 +630,7 @@ def _export_pdf(
         _patient_table(meta, styles),
         Spacer(1, 10),
         Paragraph("AI QUANTITATIVE & TELEMETRY SUMMARY", styles["section"]),
-        _ai_summary_table(primary_label, confidence, model_version, uncertainty_level, telemetry),
+        _ai_summary_table(primary_label, confidence, model_version, uncertainty_level, telemetry, modality=modality, severity=severity),
         Spacer(1, 10),
         Paragraph("CLINICAL INDICATION & TECHNIQUE", styles["section"]),
         Paragraph(MODALITY_TECHNIQUES.get(modality, "Diagnostic medical imaging study with AI assistance."), styles["body"]),
