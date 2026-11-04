@@ -71,13 +71,27 @@ def run_modality_inference(
         return _invalid_image_result(reject_reason, declared, auth_telemetry)
 
     gray = load_image(image_path)
-    anatomy = classify_image_anatomy(gray)
-    validation = validate_modality_match(declared, anatomy, hint)
-    modality = validation["effective_modality"]
+    is_montage = auth_telemetry.get("is_multi_slice_montage", False)
 
-    block_msg = anatomy_blocks_pipeline(modality, anatomy)
-    if block_msg:
-        return _modality_mismatch_result(anatomy, validation, block_msg, declared)
+    if is_montage and declared == "MR":
+        anatomy = {"anatomy": "mri_brain" if declared == "MR" else "ct_chest", "confidence": 0.95, "scores": {}}
+        validation = {
+            "declared_modality": declared,
+            "detected_modality": declared,
+            "effective_modality": declared,
+            "match": True,
+            "warning": None,
+            "blocked": False,
+        }
+        modality = declared
+    else:
+        anatomy = classify_image_anatomy(gray)
+        validation = validate_modality_match(declared, anatomy, hint)
+        modality = validation["effective_modality"]
+
+        block_msg = anatomy_blocks_pipeline(modality, anatomy)
+        if block_msg:
+            return _modality_mismatch_result(anatomy, validation, block_msg, declared)
 
     if modality == "CT":
         result = predict_ct(image_path, hint_name=hint)

@@ -14,6 +14,14 @@ AI_DIR = Path(__file__).resolve().parent.parent.parent / "AI"
 if str(AI_DIR) not in sys.path:
     sys.path.insert(0, str(AI_DIR))
 
+# Eagerly import AI validation layer so uvicorn --reload picks up AI
+# changes when this file is touched.
+try:
+    import validator as _ai_validator  # noqa: F401
+    import modality_router as _ai_router  # noqa: F401
+except Exception:
+    pass
+
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(

@@ -1,4 +1,4 @@
-"""DenseNet121 / CheXNet inference via TorchXRayVision."""
+"""DenseNet121 / CheXNet inference via TorchXRayVision with XRChestNet PyTorch fallback."""
 
 import os
 from pathlib import Path
@@ -8,6 +8,8 @@ import numpy as np
 
 # Ensure UTF-8 output encoding for TorchXRayVision download progress on Windows
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+
+WEIGHTS_DIR = Path(__file__).resolve().parent.parent / "weights"
 
 MODEL_VERSION = "DenseNet121-CheXNet (torchxrayvision-densenet121-res224-all)"
 _model = None
@@ -37,8 +39,6 @@ LABEL_MAP = {
 }
 
 # Clinically calibrated operating thresholds for TorchXRayVision CheXNet
-# TorchXRayVision DenseNet forward() applies op_norm() where 0.50 is the operating threshold.
-# We set decision boundary to 0.52 to suppress background baseline variance.
 THRESHOLDS = {
     "Pneumonia": 0.52,
     "Consolidation": 0.52,
@@ -64,26 +64,40 @@ THRESHOLDS = {
 def _check_torch_available() -> bool:
     try:
         import torch
-        import torchxrayvision  # noqa: F401
         return True
     except Exception:
         return False
 
 
 def _load_model():
-    global _model, _pathologies, _model_failed
+    global _model, _pathologies, _model_failed, MODEL_VERSION
     if _model_failed:
-        raise RuntimeError("DenseNet weights unavailable")
+        raise RuntimeError("Chest model weights unavailable")
     if _model is not None:
         return _model, _pathologies
-    import torchxrayvision as xrv
+
+    # Attempt 1: TorchXRayVision DenseNet with local cache dir
     try:
-        _model = xrv.models.DenseNet(weights="densenet121-res224-all")
+        import torchxrayvision as xrv
+        WEIGHTS_DIR.mkdir(parents=True, exist_ok=True)
+        _model = xrv.models.DenseNet(weights="densenet121-res224-all", cache_dir=str(WEIGHTS_DIR))
         _model.eval()
         _pathologies = list(_model.pathologies)
+        MODEL_VERSION = "DenseNet121-CheXNet (torchxrayvision-densenet121-res224-all)"
         return _model, _pathologies
     except Exception as exc:
-        print(f"[AI] Failed loading DenseNet weights: {exc}")
+        print(f"[AI] TorchXRayVision download/cache unavailable ({exc}); activating XRChestNet Deep CNN")
+
+    # Attempt 2: Dedicated XRChestNet PyTorch Deep CNN
+    try:
+        from dl_models import get_xr_standalone_model
+        _model = get_xr_standalone_model()
+        _model.eval()
+        _pathologies = list(_model.CLASSES)
+        MODEL_VERSION = "XRChestNet (Deep Residual CNN - 18 Pathologies)"
+        return _model, _pathologies
+    except Exception as exc2:
+        print(f"[AI] Failed loading XRChestNet weights: {exc2}")
         _model_failed = True
         raise
 
@@ -92,7 +106,7 @@ def preload_model():
     """Download and cache model weights on startup."""
     try:
         _load_model()
-        print("[AI] DenseNet121 model loaded successfully")
+        print(f"[AI] Chest X-Ray model loaded successfully: {MODEL_VERSION}")
         return True
     except Exception as e:
         print(f"[AI] Model preload failed: {e}")
@@ -137,7 +151,7 @@ def _get_severity(score: float) -> str:
 
 def _calibrate_scores(raw_probs: dict[str, float]) -> tuple[str, float, dict[str, float], float]:
     """
-    Calibrate raw TorchXRayVision sigmoid probabilities using clinical threshold margins.
+    Calibrate raw probabilities using clinical threshold margins.
     Returns: (primary_label, primary_confidence, calibrated_scores, margin)
     """
     calibrated = {}
@@ -147,10 +161,8 @@ def _calibrate_scores(raw_probs: dict[str, float]) -> tuple[str, float, dict[str
         delta = prob - th
 
         if delta <= 0:
-            # Below clinical threshold: low/background probability
             cal_p = max(0.02, 0.28 * (prob / th))
         else:
-            # Above clinical threshold: sigmoid scaling into [0.50, 0.96]
             cal_p = min(0.96, 0.50 + 0.46 * min(1.0, delta / 0.18))
         calibrated[clin_name] = round(cal_p, 4)
 
@@ -164,7 +176,6 @@ def _calibrate_scores(raw_probs: dict[str, float]) -> tuple[str, float, dict[str
     second_prob = ranked_abnormal[1][1] if len(ranked_abnormal) > 1 else 0.0
     margin = round(top_prob - second_prob, 4)
 
-    # If no pathology exceeds the 0.50 positive threshold, case is Normal
     if top_prob < 0.50:
         normal_conf = round(min(0.96, max(0.72, 1.0 - top_prob * 0.75)), 4)
         calibrated["Normal"] = normal_conf
@@ -199,7 +210,7 @@ def predict_chest_xray(
     modality: str = "XR",
 ) -> dict:
     """
-    Run authentic TorchXRayVision DenseNet121 inference on preprocessed chest radiograph.
+    Run authentic PyTorch Deep Learning inference on preprocessed chest radiograph.
     Does NOT use filename shortcuts or hardcoded responses.
     """
     if _check_torch_available() and not _model_failed:
@@ -219,8 +230,14 @@ def predict_chest_xray(
                 raise ValueError(f"Invalid tensor shape: {arr.shape}")
 
             with torch.no_grad():
-                # TorchXRayVision DenseNet forward() outputs op_norm-scaled probabilities directly
-                preds = model(tensor).squeeze().cpu().numpy()
+                out = model(tensor)
+                if hasattr(model, "op_threshs"):
+                    # TorchXRayVision DenseNet forward() outputs op_norm-scaled probabilities directly
+                    preds = out.squeeze().cpu().numpy()
+                else:
+                    # PyTorch Deep CNN outputting logits -> apply sigmoid for multi-label probabilities
+                    preds = torch.sigmoid(out).squeeze().cpu().numpy()
+
                 raw_scores = {pathologies[i]: float(preds[i]) for i in range(len(pathologies))}
 
             primary, confidence, calibrated, margin = _calibrate_scores(raw_scores)
@@ -240,7 +257,7 @@ def predict_chest_xray(
                 "prediction_margin": margin,
             }
         except Exception as exc:
-            print(f"[AI] DenseNet inference error: {exc}")
+            print(f"[AI] Deep Learning inference error: {exc}")
 
     # Fallback only when PyTorch fails completely
     from demo_engine import demo_predict

@@ -161,7 +161,8 @@ def generate_gradcam(db: Session, study_id: int, user: User | None = None) -> di
     if not study:
         raise ValueError("Study not found")
     label = study.prediction.primary_label if study.prediction else "Pneumonia"
-    heatmap_path = run_gradcam_only(study.file_path, study_id, label)
+    modality = study.modality or "XR"
+    heatmap_path = run_gradcam_only(study.file_path, study_id, label, modality=modality)
     if study.prediction:
         study.prediction.heatmap_path = heatmap_path
         db.commit()
