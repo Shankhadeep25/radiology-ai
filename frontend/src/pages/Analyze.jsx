@@ -77,6 +77,7 @@ export default function Analyze() {
     setFile(f)
     setPreview(URL.createObjectURL(f))
     setResult(null)
+    setError('')
   }
 
   const loadDemoCase = async (demoCase) => {

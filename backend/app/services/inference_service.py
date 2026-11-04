@@ -26,7 +26,7 @@ def _resolve_image_path(file_path: str) -> tuple[str, Path | None]:
     return file_path, None
 
 
-def run_gradcam_only(image_path: str, study_id: int, target_label: str = "Pneumonia") -> str:
+def run_gradcam_only(image_path: str, study_id: int, target_label: str = "Pneumonia", modality: str = "XR") -> str:
     readable, temp_file = _resolve_image_path(image_path)
     try:
         processed = preprocess_image(readable)
@@ -36,6 +36,7 @@ def run_gradcam_only(image_path: str, study_id: int, target_label: str = "Pneumo
             study_id=study_id,
             output_dir=str(settings.heatmap_dir),
             target_label=target_label,
+            modality=modality,
         )
     except ValueError:
         raise
@@ -53,7 +54,7 @@ def run_report_only(prediction_data: dict, study_id: int, report_meta: dict | No
         primary_label=prediction_data["primary_label"],
         confidence=prediction_data["confidence"],
         severity=prediction_data.get("severity"),
-        differential=prediction_data.get("differential_diagnosis", []),
+        differential=prediction_data["differential_diagnosis"],
         output_dir=str(settings.report_dir),
         study_id=study_id,
         all_findings=prediction_data.get("all_findings"),
@@ -73,7 +74,10 @@ def run_report_only(prediction_data: dict, study_id: int, report_meta: dict | No
 def run_prediction_only(image_path: str, modality: str | None = None, original_filename: str | None = None) -> dict:
     readable, temp_file = _resolve_image_path(image_path)
     try:
-        return run_modality_inference(readable, modality, original_filename)
+        prediction = run_modality_inference(readable, modality, original_filename)
+        if not prediction.get("is_valid", True) or prediction.get("primary_label") == "Invalid Image Rejected":
+            raise ValueError(prediction.get("rejection_reason") or "Uploaded file is not a valid medical scan.")
+        return prediction
     except ValueError:
         raise
     except Exception as exc:
@@ -98,24 +102,19 @@ def run_full_analysis(
         processed = preprocess_image(readable)
         effective_modality = prediction.get("modality", "XR")
 
-        if effective_modality == "XR":
+        if prediction.get("primary_label") in ("Modality Mismatch", "Invalid Image Rejected"):
+            heatmap_path = None
+            telemetry = prediction.get("telemetry", {})
+        else:
             heatmap_path, grad_tel = generate_gradcam_with_telemetry(
                 image_path=readable,
                 processed=processed,
                 study_id=study_id,
                 output_dir=str(settings.heatmap_dir),
                 target_label=prediction["primary_label"],
+                modality=effective_modality,
             )
             telemetry = {**prediction.get("telemetry", {}), **grad_tel}
-        else:
-            heatmap_path = generate_gradcam(
-                image_path=readable,
-                processed=processed,
-                study_id=study_id,
-                output_dir=str(settings.heatmap_dir),
-                target_label=prediction["primary_label"],
-            )
-            telemetry = prediction.get("telemetry", {})
 
         prediction["telemetry"] = telemetry
 
@@ -143,7 +142,7 @@ def run_full_analysis(
     except ValueError:
         raise
     except Exception as exc:
-        raise ValueError("Inference failed for unsupported or corrupted image") from exc
+        raise ValueError("Analysis pipeline failed") from exc
     finally:
-        if temp_file and temp_file.exists():
+        if temp_file is not None and temp_file.exists():
             temp_file.unlink(missing_ok=True)

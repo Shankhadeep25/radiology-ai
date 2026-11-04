@@ -90,8 +90,16 @@ def classify_image_anatomy(gray: np.ndarray) -> dict[str, Any]:
     periphery[cy - r : cy + r, cx - r : cy + r] = int(mean)
     periphery_contrast = abs(float(np.mean(center)) - float(np.mean(periphery))) / 255.0
 
+    # Circularity of bright object in center (MRI skull is oval/circular; portraits are not)
+    _, thresh = cv2.threshold(thumb, 35, 255, cv2.THRESH_BINARY)
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    circularity = 0.0
+    if contours:
+        c = max(contours, key=cv2.contourArea)
+        circularity = float(4 * np.pi * cv2.contourArea(c) / (cv2.arcLength(c, True) ** 2 + 1e-5))
+
     mri_brain = 0.0
-    if dark_ratio >= 0.28:
+    if dark_ratio >= 0.28 and circularity >= 0.48:
         mri_brain = min(
             1.0,
             (dark_ratio - 0.20) * 1.2 + center_bright * 0.45 + (1 - mean / 255) * 0.35,
