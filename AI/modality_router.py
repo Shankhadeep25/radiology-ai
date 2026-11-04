@@ -73,7 +73,7 @@ def run_modality_inference(
     gray = load_image(image_path)
     is_montage = auth_telemetry.get("is_multi_slice_montage", False)
 
-    if is_montage and declared == "MR":
+    if declared == "MR" and (is_montage or auth_telemetry.get("mri_brain_fingerprint", False)):
         anatomy = {"anatomy": "mri_brain" if declared == "MR" else "ct_chest", "confidence": 0.95, "scores": {}}
         validation = {
             "declared_modality": declared,

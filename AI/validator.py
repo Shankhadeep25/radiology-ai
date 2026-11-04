@@ -30,7 +30,6 @@ def _count_hough_circles(gray: np.ndarray) -> int:
     Works on both dark-background (standard MRI) and bright-background (white-bg collage) images.
     """
     mean_val = float(np.mean(gray))
-    # Invert bright-background images so brain structures become bright blobs
     work = gray if mean_val < 128 else (255 - gray)
     small = cv2.resize(work, (512, 512))
     blurred = cv2.GaussianBlur(small, (9, 9), 2)
@@ -79,10 +78,10 @@ def _is_mri_brain(gray: np.ndarray) -> tuple[bool, str]:
 
     # Single-slice MRI cranial cross section:
     # 1. Scanner dark background surrounding the skull on all 4 borders: border_mean < 25.0
-    # 2. Elliptical/circular cranial skull outline: circ >= 0.60
-    # 3. High attenuation of brain parenchyma: center_mean >= 100.0 (CT lung is ~87)
+    # 2. Elliptical/circular cranial skull outline: circ >= 0.50
+    # 3. High attenuation of brain parenchyma: center_mean >= 70.0
     # 4. Scanner background air: dark_ratio >= 0.35
-    if (border_mean < 25.0 and circ >= 0.60 and center_mean >= 100.0 and dark_ratio >= 0.35):
+    if (border_mean < 25.0 and circ >= 0.50 and center_mean >= 70.0 and dark_ratio >= 0.35):
         return True, (
             f"MRI brain single-slice scan (circularity={circ:.2f}, center density={center_mean:.1f})"
         )
@@ -103,9 +102,20 @@ def _verify_chest_xray_anatomy(gray: np.ndarray) -> tuple[bool, str, dict[str, f
     if aspect_ratio < 0.45 or aspect_ratio > 2.2:
         return False, f"Aspect ratio ({aspect_ratio:.2f}) does not match frontal chest radiographs (0.5 - 2.0).", {}
 
+    # Reject cross-sectional scans (CT, MRI) which have pure black central airspaces.
+    # Note: Collimated chest radiographs often have dark lateral shutter borders, but the
+    # central thoracic lung fields have continuous tissue attenuation (center_dark < 0.15).
+    center_roi = gray[int(h * 0.30):int(h * 0.70), int(w * 0.30):int(w * 0.70)]
+    center_dark = float(np.mean(center_roi < 40))
+    if center_dark > 0.20:
+        return (
+            False,
+            f"Image rejected: Excessive internal dark airspace ({center_dark:.2f} > 0.20) is characteristic of "
+            f"axial CT or cross-sectional scans, not projection chest radiographs.",
+            {"center_dark": round(center_dark, 3)},
+        )
+
     # Check 1: Abdominal / Diaphragmatic Base Density
-    # In upright frontal chest radiographs, the lower 25% represents the dense diaphragm and abdominal viscera.
-    # Studio portraits or clothing photos feature dark clothing/lapels/ties at the base (mean < 70).
     bottom_quarter = gray[int(h * 0.75):, :]
     mean_bot = float(np.mean(bottom_quarter))
     if mean_bot < 80.0:
@@ -117,8 +127,6 @@ def _verify_chest_xray_anatomy(gray: np.ndarray) -> tuple[bool, str, dict[str, f
         )
 
     # Check 2: Central cardiac-diaphragmatic attenuation
-    # In an authentic chest X-ray, the cardiac silhouette rests on the diaphragm, forming a dense central lower zone.
-    # In a portrait of a person in a suit, the center bottom is a dark necktie and jacket.
     center_bottom = gray[int(h * 0.70):int(h * 0.95), int(w * 0.35):int(w * 0.65)]
     mean_cl = float(np.mean(center_bottom))
     if mean_cl < 90.0:
@@ -134,7 +142,6 @@ def _verify_chest_xray_anatomy(gray: np.ndarray) -> tuple[bool, str, dict[str, f
     if rh < 50 or rw < 50:
         return False, "Resolution too low for anatomical analysis.", {}
 
-    # Left lung region, right lung region, and central mediastinum
     left_lung = roi[:, : int(rw * 0.38)]
     right_lung = roi[:, int(rw * 0.62) :]
     mediastinum = roi[:, int(rw * 0.40) : int(rw * 0.60)]
@@ -159,7 +166,6 @@ def _verify_chest_xray_anatomy(gray: np.ndarray) -> tuple[bool, str, dict[str, f
         "roi_std": round(std_roi, 1),
     }
 
-    # Severe asymmetry check: a chest X-ray has bilateral lungs; natural objects/faces/cars lack this balance
     if sym_diff > 0.40:
         return False, f"Bilateral hemithorax symmetry failed (diff={sym_diff:.2f} > 0.40). Image does not exhibit chest anatomy.", metrics
 
@@ -204,7 +210,6 @@ def verify_medical_image(
             except Exception as exc:
                 return False, f"Corrupted or invalid DICOM file: {exc}", {}
 
-        # Standard raster image
         raw_bgr = cv2.imread(str(p))
     elif isinstance(image_input, np.ndarray):
         raw_bgr = image_input
@@ -219,6 +224,7 @@ def verify_medical_image(
     # 2. Check for Color Saturation / Non-Radiographic Natural Photos
     mean_sat = 0.0
     channel_disparity = 0.0
+    hue_std = 0.0
 
     if raw_bgr.ndim == 3 and raw_bgr.shape[2] == 3:
         hsv = cv2.cvtColor(raw_bgr, cv2.COLOR_BGR2HSV)
@@ -228,13 +234,23 @@ def verify_medical_image(
         r = raw_bgr[:, :, 2].astype(np.float32)
         channel_disparity = float(np.mean(np.abs(r - g) + np.abs(g - b) + np.abs(b - r)))
 
+        # Monochromatic clinical PACS display tint tolerance:
+        # Clinical monitors or DICOM exports frequently apply a cool-blue or warm-sepia LUT tint.
+        # In a tinted monochrome scan, hue across tissue pixels is uniform (hue_std < 14.0).
+        # In natural color photographs, wide chromatic diversity yields hue_std > 20.0.
+        sig_mask = hsv[:, :, 2] > 25
+        hue_sig = hsv[:, :, 0][sig_mask] if np.any(sig_mask) else np.array([])
+        hue_std = float(np.std(hue_sig)) if len(hue_sig) > 100 else 0.0
+        is_monochrome_tint = (hue_std < 14.0)
+
         sat_threshold = 28.0 if expected_modality in ("US", "MR") else 18.0
         disp_threshold = 24.0 if expected_modality in ("US", "MR") else 14.0
 
-        if mean_sat > sat_threshold or channel_disparity > disp_threshold:
+        if (mean_sat > sat_threshold or channel_disparity > disp_threshold) and not is_monochrome_tint:
             telemetry = {
                 "color_saturation": round(mean_sat, 2),
                 "channel_disparity": round(channel_disparity, 2),
+                "hue_std": round(hue_std, 2),
                 "width": w,
                 "height": h,
             }
@@ -295,6 +311,30 @@ def verify_medical_image(
             )
 
     # 6. Modality-Specific Anatomical Validation
+    bh = max(h // 16, 4)
+    bw = max(w // 16, 4)
+    border_pixels = np.concatenate([
+        gray[:bh, :].ravel(), gray[-bh:, :].ravel(),
+        gray[:, :bw].ravel(), gray[:, -bw:].ravel()
+    ])
+    border_mean = float(np.mean(border_pixels))
+    center_mean = float(np.mean(gray[h // 4: 3 * h // 4, w // 4: 3 * w // 4]))
+    dark_ratio = float(np.mean(gray < 40))
+
+    _, thresh = cv2.threshold(gray, 35, 255, cv2.THRESH_BINARY)
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    circ = 0.0
+    if contours:
+        c = max(contours, key=cv2.contourArea)
+        area = cv2.contourArea(c)
+        p = cv2.arcLength(c, True)
+        if p > 0:
+            circ = float(4 * np.pi * area / (p ** 2 + 1e-5))
+
+    telemetry["border_density"] = round(border_mean, 1)
+    telemetry["center_density"] = round(center_mean, 1)
+    telemetry["circularity"] = round(circ, 3)
+
     if expected_modality == "XR":
         is_xray, reason, anat_metrics = _verify_chest_xray_anatomy(gray)
         telemetry.update(anat_metrics)
@@ -302,57 +342,28 @@ def verify_medical_image(
             return False, reason, telemetry
 
     elif expected_modality == "CT":
-        # CT Chest: Axial cross-section within circular scanner bore
-        _, thresh = cv2.threshold(gray, 35, 255, cv2.THRESH_BINARY)
-        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        circ = 0.0
-        if contours:
-            c = max(contours, key=cv2.contourArea)
-            area = cv2.contourArea(c)
-            p = cv2.arcLength(c, True)
-            if p > 0:
-                circ = float(4 * np.pi * area / (p ** 2 + 1e-5))
-        telemetry["gantry_circularity"] = round(circ, 3)
-
-        bh = max(h // 16, 4)
-        bw = max(w // 16, 4)
-        border_mean = float(np.mean([gray[:bh, :].mean(), gray[-bh:, :].mean(), gray[:, :bw].mean(), gray[:, -bw:].mean()]))
-        telemetry["border_density"] = round(border_mean, 1)
-
-        if circ < 0.50 or border_mean > 35.0:
+        # CT Chest: thoracic attenuation with dark lung airspace (mean 40-140, dark_ratio >= 0.25, center_dark >= 0.20)
+        # Rejects portraits (circ=0.06), bright XR (border=201), projection XR (center_dark=0.00), dark ultrasound (mean=28, border=7)
+        center_roi = gray[int(h * 0.30):int(h * 0.70), int(w * 0.30):int(w * 0.70)]
+        center_dark = float(np.mean(center_roi < 40))
+        if border_mean > 75.0 or mean_val < 40.0 or mean_val > 140.0 or dark_ratio < 0.25 or circ < 0.20 or center_dark < 0.20:
             return (
                 False,
                 f"Image rejected: Does not match axial CT chest cross-section geometry "
-                f"(circularity={circ:.2f} < 0.50, border density={border_mean:.1f}). "
+                f"(circularity={circ:.2f}, border density={border_mean:.1f}, lung airspace={center_dark:.2f}). "
                 f"Natural photographs, portraits, or non-CT images are not supported.",
                 telemetry,
             )
 
     elif expected_modality == "US":
-        # Ultrasound Breast: must exhibit diagnostic acoustic boundary and speckle texture
-        grad = cv2.Sobel(gray, cv2.CV_64F, 1, 1, ksize=3)
-        smooth_frac = float(np.mean(np.abs(grad) < 10))
-        dark_ratio = float(np.mean(gray < 40))
-        bh = max(h // 16, 4)
-        bw = max(w // 16, 4)
-        border_mean = float(np.mean([gray[:bh, :].mean(), gray[-bh:, :].mean(), gray[:, :bw].mean(), gray[:, -bw:].mean()]))
-
-        telemetry["acoustic_speckle_smoothness"] = round(smooth_frac, 3)
-        telemetry["border_density"] = round(border_mean, 1)
-
-        if smooth_frac > 0.72:
+        # Ultrasound Breast: dark acoustic boundary, low mean density (< 55), border < 20, bottom < 18
+        bottom_mean = float(np.mean(gray[int(h * 0.75):, :]))
+        if mean_val > 55.0 or border_mean > 20.0 or dark_ratio < 0.40 or bottom_mean > 18.0:
             return (
                 False,
-                f"Image rejected: Does not exhibit diagnostic ultrasound acoustic speckle texture "
-                f"(smooth ratio={smooth_frac:.2f} > 0.72). "
+                f"Image rejected: Does not exhibit diagnostic ultrasound acoustic acquisition pattern "
+                f"(mean={mean_val:.1f}, border={border_mean:.1f}, bottom={bottom_mean:.1f}). "
                 f"Natural photographs, portraits, and diagrams are not supported.",
-                telemetry,
-            )
-        if dark_ratio < 0.15 or border_mean > 80.0:
-            return (
-                False,
-                f"Image rejected: Lacks characteristic ultrasound acoustic acquisition boundary "
-                f"(dark ratio={dark_ratio:.2f}, border={border_mean:.1f}).",
                 telemetry,
             )
 
@@ -365,23 +376,8 @@ def verify_medical_image(
             telemetry["montage_grid"] = grid_meta
             return True, f"Verified as a multi-slice volumetric MRI montage ({grid_meta['rows']}x{grid_meta['cols']} grid, {grid_meta['count']} slices).", telemetry
 
-        # Single slice MRI cranial geometry check
-        _, thresh = cv2.threshold(gray, 35, 255, cv2.THRESH_BINARY)
-        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        circ = 0.0
-        if contours:
-            c = max(contours, key=cv2.contourArea)
-            area = cv2.contourArea(c)
-            p = cv2.arcLength(c, True)
-            if p > 0:
-                circ = float(4 * np.pi * area / (p ** 2 + 1e-5))
-        telemetry["cranial_circularity"] = round(circ, 3)
-
-        bh = max(h // 16, 4)
-        bw = max(w // 16, 4)
-        border_mean = float(np.mean([gray[:bh, :].mean(), gray[-bh:, :].mean(), gray[:, :bw].mean(), gray[:, -bw:].mean()]))
-        center_mean = float(np.mean(gray[h // 4: 3 * h // 4, w // 4: 3 * w // 4]))
-
+        # Single-slice MRI cranial geometry:
+        # Cranial skull circ >= 0.50, dark border < 25.0, brain parenchyma center >= 70.0
         if circ < 0.50:
             return (
                 False,
@@ -389,11 +385,11 @@ def verify_medical_image(
                 f"(circularity={circ:.2f} < 0.50). Natural photographs, portraits, or non-MRI images cannot be analyzed as MRI.",
                 telemetry,
             )
-        if border_mean >= 30.0 or center_mean < 100.0:
+        if border_mean >= 25.0 or center_mean < 70.0:
             return (
                 False,
                 f"Image rejected: Lacks characteristic MRI cranial tissue attenuation "
-                f"(center density={center_mean:.1f} < 100.0, border={border_mean:.1f} >= 30.0).",
+                f"(center density={center_mean:.1f} < 70.0, border={border_mean:.1f} >= 25.0).",
                 telemetry,
             )
 

@@ -91,7 +91,7 @@ def classify_image_anatomy(gray: np.ndarray) -> dict[str, Any]:
     periphery_contrast = abs(float(np.mean(center)) - float(np.mean(periphery))) / 255.0
 
     # Circularity of bright object in center (MRI skull is oval/circular; portraits are not)
-    _, thresh = cv2.threshold(thumb, 35, 255, cv2.THRESH_BINARY)
+    _, thresh = cv2.threshold(gray, 35, 255, cv2.THRESH_BINARY)
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     circularity = 0.0
     if contours:
