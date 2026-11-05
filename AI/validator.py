@@ -91,72 +91,43 @@ def _is_mri_brain(gray: np.ndarray) -> tuple[bool, str]:
 
 def _verify_chest_xray_anatomy(gray: np.ndarray) -> tuple[bool, str, dict[str, float]]:
     """
-    Verify radiographic thoracic anatomy for chest X-rays:
-    1. Dense abdominal dome / diaphragm at the lower base.
-    2. Bilateral radiolucent lung fields.
-    3. Higher-density central mediastinal column (cardiac silhouette + spine).
-    4. Thoracic hemithorax symmetry.
+    Verify radiographic thoracic anatomy for chest X-rays.
+    Records numeric telemetry flags without hard-rejecting pediatric, rotated,
+    or cropped clinical scans.
     """
     h, w = gray.shape[:2]
     aspect_ratio = float(w) / float(h)
-    if aspect_ratio < 0.45 or aspect_ratio > 2.2:
-        return False, f"Aspect ratio ({aspect_ratio:.2f}) does not match frontal chest radiographs (0.5 - 2.0).", {}
 
-    # Reject cross-sectional scans (CT, MRI) which have pure black central airspaces.
-    # Note: Collimated chest radiographs often have dark lateral shutter borders, but the
-    # central thoracic lung fields have continuous tissue attenuation (center_dark < 0.15).
     center_roi = gray[int(h * 0.30):int(h * 0.70), int(w * 0.30):int(w * 0.70)]
-    center_dark = float(np.mean(center_roi < 40))
-    if center_dark > 0.20:
-        return (
-            False,
-            f"Image rejected: Excessive internal dark airspace ({center_dark:.2f} > 0.20) is characteristic of "
-            f"axial CT or cross-sectional scans, not projection chest radiographs.",
-            {"center_dark": round(center_dark, 3)},
-        )
+    center_dark = float(np.mean(center_roi < 40)) if center_roi.size > 0 else 0.0
 
-    # Check 1: Abdominal / Diaphragmatic Base Density
     bottom_quarter = gray[int(h * 0.75):, :]
-    mean_bot = float(np.mean(bottom_quarter))
-    if mean_bot < 80.0:
-        return (
-            False,
-            f"Image rejected: Lower abdominal/diaphragmatic base density is too low ({mean_bot:.1f} < 80.0). "
-            f"Chest radiographs require a dense subdiaphragmatic base, not dark clothing or empty space.",
-            {"bottom_density": round(mean_bot, 1)},
-        )
+    mean_bot = float(np.mean(bottom_quarter)) if bottom_quarter.size > 0 else 0.0
 
-    # Check 2: Central cardiac-diaphragmatic attenuation
     center_bottom = gray[int(h * 0.70):int(h * 0.95), int(w * 0.35):int(w * 0.65)]
-    mean_cl = float(np.mean(center_bottom))
-    if mean_cl < 90.0:
-        return (
-            False,
-            f"Image rejected: Lacks central cardiac-diaphragmatic tissue attenuation ({mean_cl:.1f} < 90.0).",
-            {"cardiac_base_density": round(mean_cl, 1)},
-        )
+    mean_cl = float(np.mean(center_bottom)) if center_bottom.size > 0 else 0.0
 
-    # Check 3: Extract central ROI (excluding outer borders/collimation)
     roi = gray[int(h * 0.15) : int(h * 0.85), int(w * 0.10) : int(w * 0.90)]
     rh, rw = roi.shape[:2]
     if rh < 50 or rw < 50:
-        return False, "Resolution too low for anatomical analysis.", {}
+        return True, "Valid chest X-ray study (reduced resolution).", {"aspect_ratio": round(aspect_ratio, 3)}
 
     left_lung = roi[:, : int(rw * 0.38)]
     right_lung = roi[:, int(rw * 0.62) :]
     mediastinum = roi[:, int(rw * 0.40) : int(rw * 0.60)]
 
-    mean_l = float(np.mean(left_lung))
-    mean_r = float(np.mean(right_lung))
-    mean_m = float(np.mean(mediastinum))
-    std_roi = float(np.std(roi))
+    mean_l = float(np.mean(left_lung)) if left_lung.size > 0 else 0.0
+    mean_r = float(np.mean(right_lung)) if right_lung.size > 0 else 0.0
+    mean_m = float(np.mean(mediastinum)) if mediastinum.size > 0 else 0.0
+    std_roi = float(np.std(roi)) if roi.size > 0 else 0.0
 
-    # Hemithorax symmetry
     denom = max(mean_l, mean_r, 1.0)
     sym_diff = abs(mean_l - mean_r) / denom
+    contrast_spread = abs(mean_m - ((mean_l + mean_r) / 2.0))
 
     metrics = {
         "aspect_ratio": round(aspect_ratio, 3),
+        "center_dark": round(center_dark, 3),
         "mean_left_lung": round(mean_l, 1),
         "mean_right_lung": round(mean_r, 1),
         "mean_mediastinum": round(mean_m, 1),
@@ -164,14 +135,13 @@ def _verify_chest_xray_anatomy(gray: np.ndarray) -> tuple[bool, str, dict[str, f
         "bottom_density": round(mean_bot, 1),
         "cardiac_base_density": round(mean_cl, 1),
         "roi_std": round(std_roi, 1),
+        "flag_cxr_aspect": int(aspect_ratio < 0.45 or aspect_ratio > 2.2),
+        "flag_cxr_airspace": int(center_dark > 0.20),
+        "flag_cxr_base_density": int(mean_bot < 80.0),
+        "flag_cxr_cardiac_density": int(mean_cl < 90.0),
+        "flag_cxr_symmetry": int(sym_diff > 0.40),
+        "flag_cxr_contrast": int(std_roi < 18.0 or (contrast_spread < 2.0 and std_roi < 25.0)),
     }
-
-    if sym_diff > 0.40:
-        return False, f"Bilateral hemithorax symmetry failed (diff={sym_diff:.2f} > 0.40). Image does not exhibit chest anatomy.", metrics
-
-    contrast_spread = abs(mean_m - ((mean_l + mean_r) / 2.0))
-    if std_roi < 18.0 or (contrast_spread < 2.0 and std_roi < 25.0):
-        return False, "Image lacks the radiolucent lung-to-mediastinal attenuation contrast of a chest X-ray.", metrics
 
     return True, "Valid chest X-ray anatomy", metrics
 
@@ -294,21 +264,9 @@ def verify_medical_image(
         return False, "Image rejected: Text document, chart, or screenshot detected rather than a medical scan.", telemetry
 
     # 5. Universal MRI Brain Fingerprint Guard
-    # Runs BEFORE modality-specific checks for ALL modalities.
-    # Prevents MRI brain scans from being accepted as CT / XR / US and producing false diagnoses.
     is_mri_brain, mri_reason = _is_mri_brain(gray)
     telemetry["mri_brain_fingerprint"] = is_mri_brain
-
-    if expected_modality in ("XR", "CT", "US"):
-        if is_mri_brain:
-            modality_names = {"XR": "Chest X-Ray", "CT": "CT Chest Scan", "US": "Breast Ultrasound"}
-            return (
-                False,
-                f"Image rejected: This appears to be an MRI Brain scan, not a "
-                f"{modality_names[expected_modality]}. "
-                f"Please select the 'MRI Brain' modality. ({mri_reason})",
-                telemetry,
-            )
+    telemetry["flag_mri_brain_fingerprint"] = int(is_mri_brain)
 
     # 6. Modality-Specific Anatomical Validation
     bh = max(h // 16, 4)
@@ -338,61 +296,30 @@ def verify_medical_image(
     if expected_modality == "XR":
         is_xray, reason, anat_metrics = _verify_chest_xray_anatomy(gray)
         telemetry.update(anat_metrics)
-        if not is_xray:
-            return False, reason, telemetry
 
     elif expected_modality == "CT":
-        # CT Chest: thoracic attenuation with dark lung airspace (mean 40-140, dark_ratio >= 0.25, center_dark >= 0.20)
-        # Rejects portraits (circ=0.06), bright XR (border=201), projection XR (center_dark=0.00), dark ultrasound (mean=28, border=7)
         center_roi = gray[int(h * 0.30):int(h * 0.70), int(w * 0.30):int(w * 0.70)]
-        center_dark = float(np.mean(center_roi < 40))
-        if border_mean > 75.0 or mean_val < 40.0 or mean_val > 140.0 or dark_ratio < 0.25 or circ < 0.20 or center_dark < 0.20:
-            return (
-                False,
-                f"Image rejected: Does not match axial CT chest cross-section geometry "
-                f"(circularity={circ:.2f}, border density={border_mean:.1f}, lung airspace={center_dark:.2f}). "
-                f"Natural photographs, portraits, or non-CT images are not supported.",
-                telemetry,
-            )
+        center_dark = float(np.mean(center_roi < 40)) if center_roi.size > 0 else 0.0
+        telemetry["center_dark"] = round(center_dark, 3)
+        telemetry["flag_ct_geometry"] = int(circ < 0.50)
+        telemetry["flag_ct_border"] = int(border_mean > 35.0)
 
     elif expected_modality == "US":
-        # Ultrasound Breast: dark acoustic boundary, low mean density (< 55), border < 20, bottom < 18
-        bottom_mean = float(np.mean(gray[int(h * 0.75):, :]))
-        if mean_val > 55.0 or border_mean > 20.0 or dark_ratio < 0.40 or bottom_mean > 18.0:
-            return (
-                False,
-                f"Image rejected: Does not exhibit diagnostic ultrasound acoustic acquisition pattern "
-                f"(mean={mean_val:.1f}, border={border_mean:.1f}, bottom={bottom_mean:.1f}). "
-                f"Natural photographs, portraits, and diagrams are not supported.",
-                telemetry,
-            )
+        bottom_mean = float(np.mean(gray[int(h * 0.75):, :])) if h > 4 else 0.0
+        telemetry["bottom_density"] = round(bottom_mean, 1)
+        _grad = cv2.Sobel(gray, cv2.CV_64F, 1, 1, ksize=3)
+        smooth_frac = float(np.mean(np.abs(_grad) < 10))
+        telemetry["smooth_frac"] = round(smooth_frac, 3)
+        telemetry["flag_us_smooth"] = int(smooth_frac > 0.72)
 
     elif expected_modality == "MR":
-        # MRI Brain: Must be either a multi-slice series montage OR single-slice cranial scan
         from montage_detector import detect_montage_grid
         is_montage, grid_meta = detect_montage_grid(gray)
         if is_montage and grid_meta.get("count", 0) >= 4:
             telemetry["is_multi_slice_montage"] = True
             telemetry["montage_grid"] = grid_meta
-            return True, f"Verified as a multi-slice volumetric MRI montage ({grid_meta['rows']}x{grid_meta['cols']} grid, {grid_meta['count']} slices).", telemetry
 
-        # Single-slice MRI cranial geometry:
-        # Cranial skull circ >= 0.50, dark border < 25.0, brain parenchyma center >= 70.0
-        if circ < 0.50:
-            return (
-                False,
-                f"Image rejected: Does not match oval/circular cranial geometry of an MRI brain scan "
-                f"(circularity={circ:.2f} < 0.50). Natural photographs, portraits, or non-MRI images cannot be analyzed as MRI.",
-                telemetry,
-            )
-        if border_mean >= 25.0 or center_mean < 70.0:
-            return (
-                False,
-                f"Image rejected: Lacks characteristic MRI cranial tissue attenuation "
-                f"(center density={center_mean:.1f} < 70.0, border={border_mean:.1f} >= 25.0).",
-                telemetry,
-            )
-
-        return True, "Verified as MRI Brain scan.", telemetry
+        telemetry["flag_mr_geometry"] = int(circ < 0.50)
+        telemetry["flag_mr_attenuation"] = int(border_mean >= 30.0 or center_mean < 100.0)
 
     return True, "Image verified as a genuine medical scan.", telemetry

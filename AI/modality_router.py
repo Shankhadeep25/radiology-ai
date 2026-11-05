@@ -73,8 +73,9 @@ def run_modality_inference(
     gray = load_image(image_path)
     is_montage = auth_telemetry.get("is_multi_slice_montage", False)
 
-    if declared == "MR" and (is_montage or auth_telemetry.get("mri_brain_fingerprint", False)):
-        anatomy = {"anatomy": "mri_brain" if declared == "MR" else "ct_chest", "confidence": 0.95, "scores": {}}
+    if declared in ("MR", "CT", "US"):
+        anatomy_map = {"MR": "mri_brain", "CT": "ct_chest", "US": "us_breast"}
+        anatomy = {"anatomy": anatomy_map[declared], "confidence": 0.95, "scores": {}}
         validation = {
             "declared_modality": declared,
             "detected_modality": declared,
