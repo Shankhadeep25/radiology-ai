@@ -69,3 +69,4 @@ def validate_brain_mri(gray: np.ndarray) -> tuple[bool, str, dict[str, Any]]:
         return True, f"Verified as multi-slice MRI montage ({grid_meta['rows']}x{grid_meta['cols']} grid).", metrics
 
     return True, "Valid Brain MRI study verified.", metrics
+

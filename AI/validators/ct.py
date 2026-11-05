@@ -54,3 +54,4 @@ def validate_ct_chest(gray: np.ndarray) -> tuple[bool, str, dict[str, Any]]:
     }
 
     return True, "Valid CT chest study verified.", metrics
+

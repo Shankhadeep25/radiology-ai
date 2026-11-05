@@ -40,3 +40,4 @@ def validate_ultrasound(gray: np.ndarray) -> tuple[bool, str, dict[str, Any]]:
     }
 
     return True, "Valid Ultrasound scan verified.", metrics
+

@@ -68,3 +68,4 @@ def validate_chest_xray(gray: np.ndarray) -> tuple[bool, str, dict[str, Any]]:
     }
 
     return True, "Valid chest X-ray anatomy verified.", metrics
+

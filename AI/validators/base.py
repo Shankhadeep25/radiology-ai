@@ -150,3 +150,4 @@ def verify_base_authenticity(
         return False, "Image rejected: Text document, chart, or screenshot detected rather than a medical scan.", telemetry, None
 
     return True, "Authentic medical scan verified.", telemetry, gray
+
