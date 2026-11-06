@@ -12,8 +12,8 @@ import numpy as np
 def validate_chest_xray(gray: np.ndarray) -> tuple[bool, str, dict[str, Any]]:
     """
     Validate radiographic thoracic anatomy for chest radiographs.
-    Records non-blocking numeric telemetry flags for quality auditing without
-    rejecting atypical or pediatric/rotated/cropped clinical cases.
+    Hard-rejects images lacking a cardiomediastinal density pattern (flag_cxr_cardiac_density);
+    all other flags are recorded as non-blocking telemetry for quality auditing.
     """
     h, w = gray.shape[:2]
     aspect_ratio = float(w) / float(h)

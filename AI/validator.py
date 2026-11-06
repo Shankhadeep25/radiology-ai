@@ -62,7 +62,7 @@ def verify_medical_image(
     }
 
     validator_fn = modality_validators.get(expected, validate_chest_xray)
-    _, mod_reason, mod_metrics = validator_fn(gray)
+    mod_valid, mod_reason, mod_metrics = validator_fn(gray)
 
     combined_telemetry = {**base_telemetry, **mod_metrics}
-    return True, mod_reason, combined_telemetry
+    return bool(mod_valid), mod_reason, combined_telemetry
