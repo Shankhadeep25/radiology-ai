@@ -1,0 +1,14 @@
+{
+    "score": "Lung Opacity",
+    "preprocessing": "resize 224, (2*(g/255)-1)*1024, no CLAHE/denoise",
+    "coef": 6.308642733898864,
+    "intercept": -3.5845977799881026,
+    "fit_on": "chest_xray train, 150+150 images, seed 1",
+    "test": "chest_xray test, 100+100 images, seed 0",
+    "brier_test": 0.117,
+    "auc_test": 0.94,
+    "review_band": [
+        0.2,
+        0.8
+    ]
+}
