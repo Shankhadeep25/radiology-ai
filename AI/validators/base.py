@@ -149,5 +149,16 @@ def verify_base_authenticity(
     if extreme_pixels > 0.86 and std_val > 55.0:
         return False, "Image rejected: Text document, chart, or screenshot detected rather than a medical scan.", telemetry, None
 
+    _a = gray[:, :-1].astype(np.float32).ravel()
+    _b = gray[:, 1:].astype(np.float32).ravel()
+    nbr_corr = float(np.corrcoef(_a, _b)[0, 1]) if _a.std() > 0 and _b.std() > 0 else 1.0
+    uniq_rows = len(np.unique(gray, axis=0)) / gray.shape[0]
+    telemetry["nbr_corr"] = round(nbr_corr, 3)
+    telemetry["uniq_rows"] = round(uniq_rows, 3)
+    if nbr_corr < 0.30:
+        return False, "Image rejected: Random noise pattern, not a medical scan.", telemetry, None
+    if uniq_rows < 0.30:
+        return False, "Image rejected: Synthetic gradient (near-identical rows), not a medical scan.", telemetry, None
+
     return True, "Authentic medical scan verified.", telemetry, gray
 

@@ -67,5 +67,8 @@ def validate_chest_xray(gray: np.ndarray) -> tuple[bool, str, dict[str, Any]]:
         "flag_cxr_contrast": int(std_roi < 18.0 or (contrast_spread < 2.0 and std_roi < 25.0)),
     }
 
+    if metrics.get("flag_cxr_cardiac_density"):
+        return False, "Image rejected: Lacks chest radiograph cardiomediastinal density pattern.", metrics
+
     return True, "Valid chest X-ray anatomy verified.", metrics
 
