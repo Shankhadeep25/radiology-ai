@@ -1,5 +1,6 @@
 """DenseNet121 / CheXNet inference via TorchXRayVision with XRChestNet PyTorch fallback."""
 
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -133,6 +134,80 @@ def get_model_info() -> dict:
         }
 
 
+CALIBRATION_FILE = Path(__file__).resolve().parent / "calibration" / "xr_calibration.json"
+
+
+def _load_calibration() -> dict:
+    if CALIBRATION_FILE.exists():
+        try:
+            with open(CALIBRATION_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {
+        "coef": 6.308642733898864,
+        "intercept": -3.5845977799881026,
+        "review_band": [0.2, 0.8],
+    }
+
+
+def opacity_assessment(raw_opacity_score: float) -> dict:
+    """Assess Lung Opacity using logistic calibration (Platt scaling).
+
+    Transforms raw model output into a calibrated probability using fitted
+    parameters from xr_calibration.json. Flags whether the prediction falls
+    into the uncertain review band ([0.2, 0.8]).
+    """
+    cal = _load_calibration()
+    coef = float(cal.get("coef", 6.308642733898864))
+    intercept = float(cal.get("intercept", -3.5845977799881026))
+    review_band = cal.get("review_band", [0.2, 0.8])
+    low_th, high_th = float(review_band[0]), float(review_band[1])
+
+    # Logistic Platt scaling: 1 / (1 + exp(-(coef * x + intercept)))
+    z = coef * float(raw_opacity_score) + intercept
+    cal_prob = float(1.0 / (1.0 + np.exp(-z)))
+    cal_prob = float(np.clip(cal_prob, 0.001, 0.999))
+
+    in_review_band = bool(low_th <= cal_prob <= high_th)
+    detected = bool(cal_prob >= 0.5)
+    primary_label = "Lung Opacity" if detected else "Normal"
+    confidence = cal_prob if detected else (1.0 - cal_prob)
+    uncertainty = "needs_review" if in_review_band else ("high" if confidence >= 0.80 else "medium")
+
+    return {
+        "primary_label": primary_label,
+        "confidence": round(float(confidence), 4),
+        "calibrated_probability": round(float(cal_prob), 4),
+        "raw_score": round(float(raw_opacity_score), 4),
+        "uncertainty_level": uncertainty,
+        "in_review_band": in_review_band,
+        "review_band": review_band,
+        "status": "detected" if detected else "normal",
+    }
+
+
+def _build_secondary_findings(raw_scores: dict[str, float]) -> list[dict[str, Any]]:
+    """Build findings list for the 17 non-opacity pathologies, labelled unvalidated."""
+    from conditions import CONDITION_INFO
+    secondary = []
+    for raw_name, score in sorted(raw_scores.items(), key=lambda x: x[1], reverse=True):
+        if raw_name == "Lung Opacity":
+            continue
+        clin_name = LABEL_MAP.get(raw_name, raw_name)
+        info = CONDITION_INFO.get(clin_name, {})
+        secondary.append({
+            "condition": clin_name,
+            "probability": round(float(score), 4),
+            "status": "unvalidated",
+            "category": info.get("category", "Other"),
+            "urgency": info.get("urgency", "medium"),
+            "icon": info.get("icon", "📋"),
+            "validated": False,
+        })
+    return secondary
+
+
 def _get_uncertainty_level(confidence: float, margin: float = 0.1) -> str:
     if confidence >= 0.82 and margin >= 0.08:
         return "high"
@@ -240,21 +315,42 @@ def predict_chest_xray(
 
                 raw_scores = {pathologies[i]: float(preds[i]) for i in range(len(pathologies))}
 
-            primary, confidence, calibrated, margin = _calibrate_scores(raw_scores)
-            all_findings = _build_findings(calibrated)
+            raw_opacity = raw_scores.get("Lung Opacity", 0.0)
+            assessment = opacity_assessment(raw_opacity)
+            primary = assessment["primary_label"]
+            confidence = assessment["confidence"]
+            uncertainty = assessment["uncertainty_level"]
+
+            secondary_findings = _build_secondary_findings(raw_scores)
+            primary_finding = {
+                "condition": "Lung Opacity",
+                "probability": assessment["calibrated_probability"],
+                "status": "detected" if assessment["calibrated_probability"] >= 0.5 else "possible",
+                "category": "Airspace",
+                "urgency": "medium" if assessment["calibrated_probability"] >= 0.5 else "none",
+                "icon": "🌁",
+                "validated": True,
+            }
+            all_findings = [primary_finding] + secondary_findings
             differential = [{"condition": f["condition"], "probability": f["probability"]} for f in all_findings]
+
+            calibrated_dict = {
+                "Lung Opacity": assessment["calibrated_probability"],
+                **{LABEL_MAP.get(k, k): round(v, 4) for k, v in raw_scores.items() if k != "Lung Opacity"},
+            }
 
             return {
                 "primary_label": primary,
                 "confidence": round(float(confidence), 4),
                 "severity": _get_severity(confidence) if primary != "Normal" else None,
-                "uncertainty_level": _get_uncertainty_level(confidence, margin),
+                "uncertainty_level": uncertainty,
+                "opacity_assessment": assessment,
                 "differential_diagnosis": differential,
                 "all_findings": all_findings,
                 "model_version": MODEL_VERSION,
                 "raw_scores": {k: round(v, 4) for k, v in raw_scores.items()},
-                "calibrated_scores": calibrated,
-                "prediction_margin": margin,
+                "calibrated_scores": calibrated_dict,
+                "prediction_margin": round(abs(assessment["calibrated_probability"] - 0.5), 4),
             }
         except Exception as exc:
             print(f"[AI] Deep Learning inference error: {exc}")
