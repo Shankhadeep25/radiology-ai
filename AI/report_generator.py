@@ -181,8 +181,8 @@ def _build_dynamic_impression(
     primary_label: str,
     confidence: float,
     severity: str | None = None,
-    all_findings: list[dict] | None,
-    telemetry: dict[str, Any] | None,
+    all_findings: list[dict] | None = None,
+    telemetry: dict[str, Any] | None = None,
 ) -> str:
     """Synthesize evidence-based clinical impression with actionable recommendations."""
     tel = telemetry or {}
@@ -378,10 +378,10 @@ def _findings_table(all_findings: list[dict] | None) -> Table | None:
 def generate_report(
     primary_label: str,
     confidence: float,
+    differential: list[dict] | None = None,
+    output_dir: str = '',
+    study_id: int = 0,
     severity: str | None = None,
-    differential: list[dict],
-    output_dir: str,
-    study_id: int,
     all_findings: list[dict] | None = None,
     extra: str = "",
     modality: str = "XR",
