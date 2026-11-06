@@ -189,17 +189,38 @@ def normalize_xrv(img: np.ndarray) -> np.ndarray:
     return norm[np.newaxis, :, :].astype(np.float32)
 
 
+def normalize_xrv_standard(g: np.ndarray) -> np.ndarray:
+    """Scale a uint8 grayscale image to the standard TorchXRayVision [-1024, 1024] range.
+
+    Unlike normalize_xrv this function does NOT perform per-image min/max
+    rescaling first; it assumes the input is already a uint8 image (values
+    0-255) and applies the same fixed linear mapping that the published
+    torchxrayvision pre-processing uses:
+
+        out = (2 * (g / 255) - 1) * 1024   ->   range [-1024, 1024]
+
+    The result is returned as a (1, H, W) float32 array ready to be batched
+    into a 4-D tensor.  Call normalize_xrv (the per-image variant) for the
+    CT/MRI/US modality pipelines; use this function for the chest-XR
+    DenseNet121 path so that the input distribution matches the training data.
+    """
+    return ((2.0 * (g.astype(np.float32) / 255.0) - 1.0) * 1024.0)[np.newaxis]
+
+
 def preprocess_image(image_path: str, size: int = 224) -> np.ndarray:
     """
     Full preprocessing pipeline for TorchXRayVision DenseNet121:
-    load -> CLAHE -> denoise -> resize -> normalize to [-1024, 1024] float32 1xHxW
+    load -> resize to 224 -> normalize_xrv_standard to [-1024, 1024] float32 (1, H, W)
+
+    CLAHE and denoising are intentionally omitted here so that the pixel
+    statistics presented to the model match the torchxrayvision training
+    distribution.  The heavy morphological pipeline is preserved via
+    normalize_xrv for the CT/MRI/US branches.
     """
     try:
         gray = load_image(image_path)
-        enhanced = apply_clahe(gray)
-        cleaned = denoise(enhanced)
-        resized = cv2.resize(cleaned, (size, size), interpolation=cv2.INTER_AREA)
-        return normalize_xrv(resized)
+        resized = cv2.resize(gray, (size, size), interpolation=cv2.INTER_AREA)
+        return normalize_xrv_standard(resized)
     except ValueError:
         raise
     except Exception as exc:
