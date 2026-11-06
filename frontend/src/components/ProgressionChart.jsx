@@ -60,7 +60,6 @@ export default function ProgressionChart({ timeline }) {
             t.label === 'Normal' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
           }`}>
             {new Date(t.date).toLocaleDateString()}: {t.label}
-            {t.severity && ` (${t.severity})`}
           </span>
         ))}
       </div>

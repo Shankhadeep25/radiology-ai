@@ -10,7 +10,6 @@ Provides specialized PyTorch deep convolutional architectures for:
 Each model implements:
 - Standardized PyTorch forward pass (eval mode)
 - Target convolutional layer for Captum LayerGradCam explainability
-- Clinically calibrated logits and probability outputs
 """
 
 from __future__ import annotations
@@ -281,7 +280,7 @@ class XRChestNet(nn.Module):
         "Atelectasis",
         "Pneumothorax",
         "Pulmonary Nodule",
-        "Lung Cancer",
+        "Mass / nodular opacity",
         "Lung Lesion",
         "Pleural Thickening",
         "Pulmonary Fibrosis",

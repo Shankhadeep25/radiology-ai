@@ -57,7 +57,7 @@ def _score_all_conditions(features: dict) -> dict[str, float]:
     scores["Tuberculosis"] = min(0.92, f["upper_dark"] * 0.65 + f["texture"] * 0.20)
     scores["COVID-19"] = min(0.90, f["middle_dark"] * 0.40 + (1.0 - f["bilateral_diff"]) * 0.30 + f["lower_dark"] * 0.25)
     scores["Pulmonary Edema"] = min(0.90, f["middle_dark"] * 0.45 + f["heart_dark"] * 0.30)
-    scores["Lung Cancer"] = min(0.90, max(f["upper_dark"], f["lower_dark"]) * 0.45 + f["texture"] * 0.35)
+    scores["Mass / nodular opacity"] = min(0.90, max(f["upper_dark"], f["lower_dark"]) * 0.45 + f["texture"] * 0.35)
     scores["Pulmonary Nodule"] = min(0.85, f["texture"] * 0.45 + f["bilateral_diff"] * 0.35)
     scores["Pleural Effusion"] = min(0.92, max(f["costo_blunt_l"], f["costo_blunt_r"]) * 0.70 + f["lower_dark"] * 0.25)
     scores["Cardiomegaly"] = min(0.92, max(0.0, (f["heart_width"] - 0.40) * 3.5) + f["heart_dark"] * 0.25)

@@ -258,9 +258,7 @@ export default function Analyze() {
                       ? 'text-emerald-600'
                       : 'text-rose-600'
                   }`}>{prediction.primary_label}</div>
-                  {prediction.severity && (
-                    <span className="badge-warn capitalize">{prediction.severity}</span>
-                  )}
+
                   <span className={
                     prediction.uncertainty_level === 'high' ? 'badge-success' :
                     prediction.uncertainty_level === 'medium' ? 'badge-warn' : 'badge-danger'

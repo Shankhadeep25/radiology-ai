@@ -27,7 +27,7 @@ REVERSE_LABEL_MAP = {
     "Atelectasis": "Atelectasis",
     "Pneumothorax": "Pneumothorax",
     "Pulmonary Nodule": "Nodule",
-    "Lung Cancer": "Mass",
+    "Mass / nodular opacity": "Mass",
     "Lung Lesion": "Lung Lesion",
     "Pleural Thickening": "Pleural_Thickening",
     "Pulmonary Fibrosis": "Fibrosis",

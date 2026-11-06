@@ -180,7 +180,7 @@ def _build_dynamic_impression(
     modality: str,
     primary_label: str,
     confidence: float,
-    severity: str | None,
+    severity: str | None = None,
     all_findings: list[dict] | None,
     telemetry: dict[str, Any] | None,
 ) -> str:
@@ -188,7 +188,6 @@ def _build_dynamic_impression(
     tel = telemetry or {}
     loc = tel.get("anatomical_location") or "visualized field"
     conf_pct = round(confidence * 100, 1)
-    sev_str = f" ({severity} severity)" if severity else ""
 
     if modality == "CT":
         if "No Acute" in primary_label:
@@ -202,7 +201,7 @@ def _build_dynamic_impression(
             if diam >= 8.0 else "Recommend follow-up low-dose CT chest in 6 to 12 months per Fleischner Society guidelines."
         )
         return (
-            f"1. <b>{primary_label}</b> identified in the {loc} with {conf_pct}% AI confidence{sev_str}.<br/>"
+            f"1. <b>{primary_label}</b> identified in the {loc} with {conf_pct}% AI confidence.<br/>"
             f"2. {fleischner}<br/>"
             f"3. Correlate with smoking history and occupational exposures."
         )
@@ -211,7 +210,7 @@ def _build_dynamic_impression(
         if "No Acute" in primary_label:
             return "1. No acute intracranial mass lesion or midline shift on this MRI slice."
         return (
-            f"1. <b>{primary_label}</b> centered in the {loc} with {conf_pct}% AI confidence{sev_str}.<br/>"
+            f"1. <b>{primary_label}</b> centered in the {loc} with {conf_pct}% AI confidence.<br/>"
             "2. Associated perilesional vasogenic edema and local sulcal effacement.<br/>"
             "3. Urgent contrast-enhanced brain MRI (gadolinium) and neurosurgical consultation recommended."
         )
@@ -235,7 +234,7 @@ def _build_dynamic_impression(
         )
 
     return (
-        f"1. <b>{primary_label}</b> involving the {loc} with <b>{conf_pct}%</b> AI confidence{sev_str}.<br/>"
+        f"1. <b>{primary_label}</b> involving the {loc} with <b>{conf_pct}%</b> AI confidence.<br/>"
         "2. Review Grad-CAM explainability overlay for regional anatomical correlation.<br/>"
         "3. Correlate with clinical history, auscultation findings, and laboratory inflammatory markers.<br/>"
         "4. Formal sign-off and follow-up imaging recommended."
@@ -379,7 +378,7 @@ def _findings_table(all_findings: list[dict] | None) -> Table | None:
 def generate_report(
     primary_label: str,
     confidence: float,
-    severity: str | None,
+    severity: str | None = None,
     differential: list[dict],
     output_dir: str,
     study_id: int,

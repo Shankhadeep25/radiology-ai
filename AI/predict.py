@@ -29,7 +29,7 @@ LABEL_MAP = {
     "Atelectasis": "Atelectasis",
     "Pneumothorax": "Pneumothorax",
     "Nodule": "Pulmonary Nodule",
-    "Mass": "Lung Cancer",
+    "Mass": "Mass / nodular opacity",
     "Lung Lesion": "Lung Lesion",
     "Pleural_Thickening": "Pleural Thickening",
     "Fibrosis": "Pulmonary Fibrosis",
@@ -39,7 +39,6 @@ LABEL_MAP = {
     "Enlarged Cardiomediastinum": "Cardiomediastinal Enlargement",
 }
 
-# Clinically calibrated operating thresholds for TorchXRayVision CheXNet
 THRESHOLDS = {
     "Pneumonia": 0.52,
     "Consolidation": 0.52,
@@ -203,12 +202,7 @@ def _get_uncertainty_level(confidence: float, margin: float = 0.1) -> str:
     return "needs_review"
 
 
-def _get_severity(score: float) -> str:
-    if score < 0.58:
-        return "mild"
-    if score < 0.78:
-        return "moderate"
-    return "severe"
+
 
 
 def _calibrate_scores(raw_probs: dict[str, float]) -> tuple[str, float, dict[str, float], float]:
@@ -329,7 +323,6 @@ def predict_chest_xray(
             return {
                 "primary_label": primary,
                 "confidence": round(float(confidence), 4),
-                "severity": _get_severity(confidence) if primary != "Normal" else None,
                 "uncertainty_level": uncertainty,
                 "opacity_assessment": assessment,
                 "differential_diagnosis": differential,
