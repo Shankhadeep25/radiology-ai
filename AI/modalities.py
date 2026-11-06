@@ -89,10 +89,8 @@ def detect_modality_from_file(image_path: str, declared: str | None = None) -> s
 # ---------------------------------------------------------------------------
 
 def predict_ct(image_path: str, hint_name: str | None = None) -> dict:
-    """
-    CT Chest lung nodule screening with CTNoduleNet deep neural network
-    and discrete 3D voxel mass integration.
-    """
+    """Fail closed: CT model unavailable."""
+    raise RuntimeError("CT model unavailable")
     gray = load_image(image_path)
     from montage_detector import detect_montage_grid
     is_montage, grid_meta = detect_montage_grid(gray)
@@ -197,10 +195,8 @@ def predict_ct(image_path: str, hint_name: str | None = None) -> dict:
 # ---------------------------------------------------------------------------
 
 def predict_mri(image_path: str, hint_name: str | None = None) -> dict:
-    """
-    Brain MRI intracranial lesion screening with BrainMRINet deep neural network
-    and BraTS-style volumetric integration.
-    """
+    """Fail closed: MRI model unavailable."""
+    raise RuntimeError("MRI model unavailable")
     gray = load_image(image_path)
     from montage_detector import detect_montage_grid
     is_montage, grid_meta = detect_montage_grid(gray)
@@ -301,10 +297,8 @@ def predict_mri(image_path: str, hint_name: str | None = None) -> dict:
 # ---------------------------------------------------------------------------
 
 def predict_ultrasound(image_path: str, hint_name: str | None = None) -> dict:
-    """
-    Breast ultrasound lesion evaluation with UltrasoundBIRADSNet deep neural network
-    and ACR BI-RADS categorization.
-    """
+    """Fail closed: Ultrasound model unavailable."""
+    raise RuntimeError("Ultrasound model unavailable")
     gray = load_image(image_path)
     tensor = _prepare_tensor(gray)
     model = get_ultrasound_model()

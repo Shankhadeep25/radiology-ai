@@ -356,108 +356,20 @@ def _init_weights_deterministic(model: nn.Module, seed: int = 42):
 
 
 def get_ct_model() -> CTNoduleNet:
-    """Retrieve cached CTNoduleNet model, loading state_dict from weights/ if available."""
-    global _MODEL_CACHE
-    if "CT" in _MODEL_CACHE:
-        return _MODEL_CACHE["CT"]  # type: ignore
-
-    model = CTNoduleNet()
-    weight_file = WEIGHTS_DIR / "ct_nodulenet.pt"
-    if weight_file.exists():
-        try:
-            state = torch.load(weight_file, map_location="cpu", weights_only=True)
-            model.load_state_dict(state)
-        except Exception:
-            _init_weights_deterministic(model, seed=101)
-    else:
-        _init_weights_deterministic(model, seed=101)
-        WEIGHTS_DIR.mkdir(parents=True, exist_ok=True)
-        try:
-            torch.save(model.state_dict(), weight_file)
-        except Exception:
-            pass
-
-    model.eval()
-    _MODEL_CACHE["CT"] = model
-    return model
+    """CT model is unavailable (fail closed)."""
+    raise RuntimeError("CT model unavailable")
 
 
 def get_mri_model() -> BrainMRINet:
-    """Retrieve cached BrainMRINet model."""
-    global _MODEL_CACHE
-    if "MR" in _MODEL_CACHE:
-        return _MODEL_CACHE["MR"]  # type: ignore
-
-    model = BrainMRINet()
-    weight_file = WEIGHTS_DIR / "mri_brainnet.pt"
-    if weight_file.exists():
-        try:
-            state = torch.load(weight_file, map_location="cpu", weights_only=True)
-            model.load_state_dict(state)
-        except Exception:
-            _init_weights_deterministic(model, seed=202)
-    else:
-        _init_weights_deterministic(model, seed=202)
-        WEIGHTS_DIR.mkdir(parents=True, exist_ok=True)
-        try:
-            torch.save(model.state_dict(), weight_file)
-        except Exception:
-            pass
-
-    model.eval()
-    _MODEL_CACHE["MR"] = model
-    return model
+    """MRI model is unavailable (fail closed)."""
+    raise RuntimeError("MRI model unavailable")
 
 
 def get_ultrasound_model() -> UltrasoundBIRADSNet:
-    """Retrieve cached UltrasoundBIRADSNet model."""
-    global _MODEL_CACHE
-    if "US" in _MODEL_CACHE:
-        return _MODEL_CACHE["US"]  # type: ignore
-
-    model = UltrasoundBIRADSNet()
-    weight_file = WEIGHTS_DIR / "us_biradsnet.pt"
-    if weight_file.exists():
-        try:
-            state = torch.load(weight_file, map_location="cpu", weights_only=True)
-            model.load_state_dict(state)
-        except Exception:
-            _init_weights_deterministic(model, seed=303)
-    else:
-        _init_weights_deterministic(model, seed=303)
-        WEIGHTS_DIR.mkdir(parents=True, exist_ok=True)
-        try:
-            torch.save(model.state_dict(), weight_file)
-        except Exception:
-            pass
-
-    model.eval()
-    _MODEL_CACHE["US"] = model
-    return model
+    """Ultrasound model is unavailable (fail closed)."""
+    raise RuntimeError("Ultrasound model unavailable")
 
 
 def get_xr_standalone_model() -> XRChestNet:
-    """Retrieve cached XRChestNet model."""
-    global _MODEL_CACHE
-    if "XR_STANDALONE" in _MODEL_CACHE:
-        return _MODEL_CACHE["XR_STANDALONE"]  # type: ignore
-
-    model = XRChestNet()
-    weight_file = WEIGHTS_DIR / "xr_chestnet.pt"
-    if weight_file.exists():
-        try:
-            state = torch.load(weight_file, map_location="cpu", weights_only=True)
-            model.load_state_dict(state)
-        except Exception:
-            _init_weights_deterministic(model, seed=404)
-    else:
-        _init_weights_deterministic(model, seed=404)
-        WEIGHTS_DIR.mkdir(parents=True, exist_ok=True)
-        try:
-            torch.save(model.state_dict(), weight_file)
-        except Exception:
-            pass
-
-    model.eval()
-    _MODEL_CACHE["XR_STANDALONE"] = model
-    return model
+    """Standalone XR fallback model is unavailable (fail closed)."""
+    raise RuntimeError("Standalone XR model unavailable")

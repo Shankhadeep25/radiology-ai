@@ -162,9 +162,15 @@ async def upload_scan(
 def predict(study_id: int, db: Session = Depends(get_db), user: User = Depends(_require_user)):
     try:
         return radiology_service.analyze_study(db, study_id, user)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception:
+    except (RuntimeError, ValueError) as e:
+        if "model unavailable" in str(e).lower():
+            raise HTTPException(status_code=503, detail=str(e))
+        if isinstance(e, ValueError):
+            raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        if "model unavailable" in str(e).lower():
+            raise HTTPException(status_code=503, detail=str(e))
         raise HTTPException(status_code=500, detail="Inference failed")
 
 

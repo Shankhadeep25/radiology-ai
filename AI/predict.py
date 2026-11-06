@@ -73,11 +73,10 @@ def _check_torch_available() -> bool:
 def _load_model():
     global _model, _pathologies, _model_failed, MODEL_VERSION
     if _model_failed:
-        raise RuntimeError("Chest model weights unavailable")
+        raise RuntimeError("Standalone XR model unavailable")
     if _model is not None:
         return _model, _pathologies
 
-    # Attempt 1: TorchXRayVision DenseNet with local cache dir
     try:
         import torchxrayvision as xrv
         WEIGHTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -87,20 +86,8 @@ def _load_model():
         MODEL_VERSION = "DenseNet121-CheXNet (torchxrayvision-densenet121-res224-all)"
         return _model, _pathologies
     except Exception as exc:
-        print(f"[AI] TorchXRayVision download/cache unavailable ({exc}); activating XRChestNet Deep CNN")
-
-    # Attempt 2: Dedicated XRChestNet PyTorch Deep CNN
-    try:
-        from dl_models import get_xr_standalone_model
-        _model = get_xr_standalone_model()
-        _model.eval()
-        _pathologies = list(_model.CLASSES)
-        MODEL_VERSION = "XRChestNet (Deep Residual CNN - 18 Pathologies)"
-        return _model, _pathologies
-    except Exception as exc2:
-        print(f"[AI] Failed loading XRChestNet weights: {exc2}")
         _model_failed = True
-        raise
+        raise RuntimeError("Standalone XR model unavailable") from exc
 
 
 def preload_model():
@@ -355,6 +342,4 @@ def predict_chest_xray(
         except Exception as exc:
             print(f"[AI] Deep Learning inference error: {exc}")
 
-    # Fallback only when PyTorch fails completely
-    from demo_engine import demo_predict
-    return demo_predict(image_path, hint_name=hint_name, modality=modality)
+    raise RuntimeError("Standalone XR model unavailable")

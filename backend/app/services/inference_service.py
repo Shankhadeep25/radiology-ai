@@ -78,7 +78,7 @@ def run_prediction_only(image_path: str, modality: str | None = None, original_f
         if not prediction.get("is_valid", True) or prediction.get("primary_label") == "Invalid Image Rejected":
             raise ValueError(prediction.get("rejection_reason") or "Uploaded file is not a valid medical scan.")
         return prediction
-    except ValueError:
+    except (ValueError, RuntimeError):
         raise
     except Exception as exc:
         raise ValueError("Inference failed for unsupported or corrupted image") from exc
@@ -139,7 +139,7 @@ def run_full_analysis(
         )
 
         return {**prediction, "heatmap_path": heatmap_path, "report": report, "telemetry": telemetry}
-    except ValueError:
+    except (ValueError, RuntimeError):
         raise
     except Exception as exc:
         raise ValueError("Analysis pipeline failed") from exc
