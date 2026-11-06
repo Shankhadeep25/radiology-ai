@@ -21,7 +21,7 @@ LABEL_MAP = {
     "Pneumonia": "Pneumonia",
     "Consolidation": "Consolidation",
     "Infiltration": "Infiltration",
-    "Lung Opacity": "Lung Opacity",
+    "Lung Opacity": "Pneumonia",
     "Effusion": "Pleural Effusion",
     "Edema": "Pulmonary Edema",
     "Cardiomegaly": "Cardiomegaly",
@@ -51,7 +51,7 @@ THRESHOLDS = {
     "Atelectasis": 0.52,
     "Nodule": 0.52,
     "Mass": 0.52,
-    "Fracture": 0.52,
+    "Fracture": 0.65,
     "Hernia": 0.52,
     "Fibrosis": 0.52,
     "Emphysema": 0.54,
@@ -164,7 +164,10 @@ def _calibrate_scores(raw_probs: dict[str, float]) -> tuple[str, float, dict[str
             cal_p = max(0.02, 0.28 * (prob / th))
         else:
             cal_p = min(0.96, 0.50 + 0.46 * min(1.0, delta / 0.18))
-        calibrated[clin_name] = round(cal_p, 4)
+        if clin_name in calibrated:
+            calibrated[clin_name] = max(calibrated[clin_name], round(cal_p, 4))
+        else:
+            calibrated[clin_name] = round(cal_p, 4)
 
     ranked_abnormal = sorted(
         [(k, v) for k, v in calibrated.items() if k != "Normal"],

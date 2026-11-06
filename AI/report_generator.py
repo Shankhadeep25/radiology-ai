@@ -352,6 +352,14 @@ def _build_dynamic_impression(
             "3. Obtain immediate upright or cross-table lateral radiograph post-intervention."
         )
 
+    if primary_label == "Pneumonia":
+        return (
+            f"1. <b>Pneumonia (Airspace Consolidation)</b> involving the {loc} with <b>{conf_pct}%</b> AI confidence{sev_str}.<br/>"
+            "2. Airspace opacity and consolidation highlighted on neural Grad-CAM explainability.<br/>"
+            "3. Correlate with clinical presentation (fever, cough, sputum, auscultatory findings) and inflammatory markers.<br/>"
+            "4. Consider guideline-directed antimicrobial management and follow-up radiograph to verify complete resolution."
+        )
+
     return (
         f"1. <b>{primary_label}</b> involving the {loc} with <b>{conf_pct}%</b> AI confidence{sev_str}.<br/>"
         "2. Review Grad-CAM explainability overlay for regional anatomical correlation.<br/>"
