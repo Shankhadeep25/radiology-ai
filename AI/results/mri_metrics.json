@@ -1,0 +1,172 @@
+{
+  "note": "Trained and tested on public data only. Not clinically validated. Classifies this dataset's labels only.",
+  "repo_commit": "3113fad feat(eval): add shared evaluation helpers with tests",
+  "seed": 42,
+  "backbone": "densenet121",
+  "weights_init": "torchvision IMAGENET1K_V1",
+  "dataset": "masoudnickparvar/brain-tumor-mri-dataset",
+  "classes": [
+    "glioma",
+    "meningioma",
+    "notumor",
+    "pituitary"
+  ],
+  "preprocessing": {
+    "resize": [
+      224,
+      224
+    ],
+    "channels": "grayscale replicated to RGB",
+    "scale": "0-1",
+    "normalise_mean": [
+      0.485,
+      0.456,
+      0.406
+    ],
+    "normalise_std": [
+      0.229,
+      0.224,
+      0.225
+    ]
+  },
+  "split": {
+    "train": 3893,
+    "val": 688,
+    "test": 1600,
+    "testing_folder_kept_as_test": true,
+    "dup_removed_within_training": 695,
+    "dup_removed_vs_testing": 324,
+    "dup_method": "dHash 16x16, max dist 8",
+    "patient_ids_available": false
+  },
+  "temperature": 1.25340426648063,
+  "review": {
+    "threshold": 0.39530423547890986,
+    "test_coverage": 0.999375,
+    "test_acc_above": 0.8949343339587242
+  },
+  "metrics": {
+    "accuracy_ci": [
+      0.894375,
+      0.87875,
+      0.909375
+    ],
+    "macro_auc_ci": [
+      0.97545,
+      0.9694804076851835,
+      0.9809102769820477
+    ],
+    "brier_raw": 0.17478714526431982,
+    "brier_calibrated": 0.16912177168695458,
+    "per_class": [
+      {
+        "class": 0,
+        "sensitivity": 0.785,
+        "specificity": 0.9958333333333333
+      },
+      {
+        "class": 1,
+        "sensitivity": 0.8175,
+        "specificity": 0.9766666666666667
+      },
+      {
+        "class": 2,
+        "sensitivity": 0.995,
+        "specificity": 0.8983333333333333
+      },
+      {
+        "class": 3,
+        "sensitivity": 0.98,
+        "specificity": 0.9883333333333333
+      }
+    ],
+    "confusion_matrix": [
+      [
+        314,
+        20,
+        60,
+        6
+      ],
+      [
+        4,
+        327,
+        61,
+        8
+      ],
+      [
+        1,
+        1,
+        398,
+        0
+      ],
+      [
+        0,
+        7,
+        1,
+        392
+      ]
+    ],
+    "reliability": [
+      {
+        "range": "0.00-0.50",
+        "n": 22,
+        "mean_conf": 0.44903310424557596,
+        "accuracy": 0.3181818181818182
+      },
+      {
+        "range": "0.50-0.60",
+        "n": 33,
+        "mean_conf": 0.5559940688703839,
+        "accuracy": 0.36363636363636365
+      },
+      {
+        "range": "0.60-0.70",
+        "n": 26,
+        "mean_conf": 0.6512561962275676,
+        "accuracy": 0.4230769230769231
+      },
+      {
+        "range": "0.70-0.80",
+        "n": 56,
+        "mean_conf": 0.7496686166948476,
+        "accuracy": 0.5892857142857143
+      },
+      {
+        "range": "0.80-0.90",
+        "n": 85,
+        "mean_conf": 0.85726986457979,
+        "accuracy": 0.7058823529411765
+      },
+      {
+        "range": "0.90-0.95",
+        "n": 92,
+        "mean_conf": 0.9279515892248069,
+        "accuracy": 0.75
+      },
+      {
+        "range": "0.95-1.00",
+        "n": 1286,
+        "mean_conf": 0.9932023928176755,
+        "accuracy": 0.963452566096423
+      }
+    ]
+  },
+  "wrong_modality_test": {
+    "us_busi": {
+      "n": 100,
+      "mean_max_conf": 0.6825828557830323,
+      "frac_above_review_thr": 0.97
+    },
+    "ct_chest": {
+      "n": 100,
+      "mean_max_conf": 0.8575239754659275,
+      "frac_above_review_thr": 1.0
+    },
+    "xray_chest": {
+      "n": 100,
+      "mean_max_conf": 0.771282543727744,
+      "frac_above_review_thr": 0.99
+    }
+  },
+  "status": "NOT approved for app use. On the Testing folder: accuracy 0.894 (95% CI 0.879-0.909); about 15% of tumour images predicted as notumor; calibration and review threshold did not hold (validation set shares patients/near-copies with training); model gives confident answers on chest CT, chest X-ray and breast ultrasound images. Public data only; not clinically validated."
+}
