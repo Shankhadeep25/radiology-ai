@@ -314,7 +314,7 @@ def _study_to_response(study: Study) -> StudyResponse:
         modality=study.modality,
         file_type=study.file_type,
         original_filename=study.original_filename,
-        image_url=f"/api/v1/files/uploads/{Path(study.file_path).name}",
+        image_url=f"/api/v1/studies/{study.id}/image",
         created_at=study.created_at,
         prediction=_prediction_to_response(study.prediction) if study.prediction else None,
         report=_report_to_response(study.report) if study.report else None,

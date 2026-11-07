@@ -156,6 +156,14 @@ export default function DicomViewer({ studyId, fileType, imageUrl, patientName }
             alt={patientName ? `Scan for ${patientName}` : 'Medical scan'}
             className="max-w-full max-h-full w-auto h-auto object-contain"
             style={{ maxHeight: 300 }}
+            onError={() => {
+              if (displayUrl !== imageUrl) {
+                setDisplayUrl(imageUrl)
+              } else {
+                setStatus('error')
+                setError('Failed to render medical scan image')
+              }
+            }}
           />
         )}
 
