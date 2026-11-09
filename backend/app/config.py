@@ -43,6 +43,10 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
+if settings.database_url.startswith("sqlite:///."):
+    rel_path = settings.database_url[len("sqlite:///"):]
+    settings.database_url = f"sqlite:///{ (BASE_DIR / rel_path).resolve().as_posix() }"
+
 # Allow CORS override from env (Docker)
 import os
 _cors = os.getenv("CORS_ORIGINS")
