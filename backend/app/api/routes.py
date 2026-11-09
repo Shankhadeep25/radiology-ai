@@ -220,16 +220,34 @@ def get_task_status(task_id: str, user: User = Depends(_require_user)):
 def gradcam(study_id: int, db: Session = Depends(get_db), user: User = Depends(_require_user)):
     try:
         return radiology_service.generate_gradcam(db, study_id, user)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    except (RuntimeError, ValueError) as e:
+        err_msg = str(e).lower()
+        if "not available" in err_msg or "model unavailable" in err_msg:
+            raise HTTPException(status_code=503, detail=str(e))
+        if isinstance(e, ValueError):
+            raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        err_msg = str(e).lower()
+        if "not available" in err_msg or "model unavailable" in err_msg:
+            raise HTTPException(status_code=503, detail=str(e))
+        raise HTTPException(status_code=500, detail="Grad-CAM failed")
 
 
 @router.post("/report/{study_id}", response_model=ReportResponse)
 def report(study_id: int, db: Session = Depends(get_db), user: User = Depends(_require_user)):
     try:
         return radiology_service.generate_report_for_study(db, study_id, user)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    except (RuntimeError, ValueError) as e:
+        if "model unavailable" in str(e).lower():
+            raise HTTPException(status_code=503, detail=str(e))
+        if isinstance(e, ValueError):
+            raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        if "model unavailable" in str(e).lower():
+            raise HTTPException(status_code=503, detail=str(e))
+        raise HTTPException(status_code=500, detail="Report generation failed")
 
 
 # ── Studies ───────────────────────────────────────────────────────────────────
@@ -336,7 +354,54 @@ def list_modalities():
     return {
         "mvp": "XR",
         "supported": MODALITY_MODELS,
-        "note": "X-ray is production MVP (DenseNet121). CT/MRI/US pipelines are live with CV + architecture for nnU-Net / MONAI / MedSAM.",
+        "note": "X-ray is production MVP (DenseNet121). CT, MRI, and Ultrasound are research baselines (not clinically validated), disabled by default unless ENABLE_BASELINE_MODELS=1.",
+    }
+
+
+# ── Baseline Models Status ───────────────────────────────────────────────────
+
+@router.get("/baseline/status")
+def baseline_status():
+    import json
+    import os
+    import sys
+    from pathlib import Path
+
+    ai_dir = Path(__file__).resolve().parent.parent.parent.parent / "AI"
+    if str(ai_dir) not in sys.path:
+        sys.path.insert(0, str(ai_dir))
+    from dl_models import normalize_meta, _BASELINE_CACHE
+
+    flag_enabled = os.getenv("ENABLE_BASELINE_MODELS") == "1"
+    weights_dir = Path(__file__).resolve().parent.parent.parent.parent / "weights"
+
+    models_status = {}
+    for name in ["mri", "us", "ct"]:
+        weights_file = weights_dir / f"{name}_densenet121.pt"
+        metrics_file = weights_dir / "metrics" / f"{name}_metrics.json"
+        weights_present = weights_file.exists() and metrics_file.exists()
+        loaded = name in _BASELINE_CACHE
+
+        norm_meta = None
+        if metrics_file.exists():
+            try:
+                with open(metrics_file, "r", encoding="utf-8") as f:
+                    raw_meta = json.load(f)
+                norm_meta = normalize_meta(name, raw_meta)
+            except Exception:
+                norm_meta = None
+
+        models_status[name] = {
+            "enabled": flag_enabled,
+            "weights_present": weights_present,
+            "loaded": loaded,
+            "metrics": norm_meta,
+        }
+
+    return {
+        "enabled": flag_enabled,
+        "models": models_status,
+        "disclaimer": "Research baselines, not clinically validated. Enabled only when ENABLE_BASELINE_MODELS=1.",
     }
 
 
@@ -344,16 +409,13 @@ def list_modalities():
 
 @router.get("/ai/model")
 def ai_model_info():
-    try:
-        import sys
-        from pathlib import Path
-        ai_dir = Path(__file__).resolve().parent.parent.parent.parent / "AI"
-        if str(ai_dir) not in sys.path:
-            sys.path.insert(0, str(ai_dir))
-        from predict import get_model_info
-        return get_model_info()
-    except Exception as e:
-        return {"loaded": False, "model": "demo-engine", "error": str(e)}
+    import sys
+    from pathlib import Path
+    ai_dir = Path(__file__).resolve().parent.parent.parent.parent / "AI"
+    if str(ai_dir) not in sys.path:
+        sys.path.insert(0, str(ai_dir))
+    from predict import get_model_info
+    return get_model_info()
 
 
 @router.get("/demo/samples")
@@ -367,11 +429,11 @@ def demo_samples():
                 if "pneumonia" in stem:
                     label = "X-Ray Pneumonia"
                 elif "ct" in stem:
-                    label = "CT Nodule"
+                    label = "CT Adenocarcinoma"
                 elif "mri" in stem:
-                    label = "MRI Tumor"
+                    label = "MRI Glioma"
                 elif "us" in stem:
-                    label = "Ultrasound BI-RADS"
+                    label = "Ultrasound Benign"
                 elif "normal" in stem:
                     label = "X-Ray Normal"
                 else:

@@ -27,6 +27,8 @@ def _resolve_image_path(file_path: str) -> tuple[str, Path | None]:
 
 
 def run_gradcam_only(image_path: str, study_id: int, target_label: str = "Pneumonia", modality: str = "XR") -> str:
+    if (modality or "").upper() in {"CT", "MR", "MRI", "US"}:
+        raise RuntimeError("Grad-CAM not available for baseline models")
     readable, temp_file = _resolve_image_path(image_path)
     try:
         processed = preprocess_image(readable)
@@ -102,7 +104,10 @@ def run_full_analysis(
         processed = preprocess_image(readable)
         effective_modality = prediction.get("modality", "XR")
 
-        if prediction.get("primary_label") in ("Modality Mismatch", "Invalid Image Rejected"):
+        if (
+            prediction.get("primary_label") in ("Modality Mismatch", "Invalid Image Rejected")
+            or prediction.get("status") == "research_baseline"
+        ):
             heatmap_path = None
             telemetry = prediction.get("telemetry", {})
         else:

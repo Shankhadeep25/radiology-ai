@@ -14,6 +14,7 @@ Each model implements:
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Any, Tuple
@@ -22,6 +23,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torchvision import models
 
 WEIGHTS_DIR = Path(__file__).resolve().parent.parent / "weights"
 
@@ -372,3 +374,143 @@ def get_ultrasound_model() -> UltrasoundBIRADSNet:
 def get_xr_standalone_model() -> XRChestNet:
     """Standalone XR fallback model is unavailable (fail closed)."""
     raise RuntimeError("Standalone XR model unavailable")
+
+
+# ---------------------------------------------------------------------------
+# Baseline DenseNet121 Models (CT, MRI, US)
+# ---------------------------------------------------------------------------
+
+_BASELINE_CACHE: dict[str, tuple[nn.Module, list[str], float, dict[str, Any]]] = {}
+
+
+def normalize_meta(name: str, meta: dict[str, Any]) -> dict[str, Any]:
+    """Return common metadata dictionary across CT, MRI, and US metrics JSON layouts.
+
+    Schema:
+      {name, classes, temperature, accuracy, accuracy_ci, balanced_accuracy,
+       macro_auc, macro_auc_ci, dataset, seed, backbone, status_note, wrong_modality}
+    Absent values are returned as None. Numbers are never invented.
+    """
+    key = name.lower()
+    classes = meta.get("classes")
+    temperature = meta.get("temperature")
+    dataset = meta.get("dataset")
+    seed = meta.get("seed")
+    backbone = meta.get("backbone")
+
+    accuracy = None
+    accuracy_ci = None
+    balanced_accuracy = None
+    macro_auc = None
+    macro_auc_ci = None
+    status_note = None
+    wrong_modality = None
+
+    if key == "mri":
+        m = meta.get("metrics") or {}
+        acc_ci = m.get("accuracy_ci")
+        if isinstance(acc_ci, (list, tuple)) and len(acc_ci) >= 3:
+            accuracy = acc_ci[0]
+            accuracy_ci = [acc_ci[1], acc_ci[2]]
+        elif isinstance(acc_ci, (list, tuple)) and len(acc_ci) == 2:
+            accuracy_ci = list(acc_ci)
+
+        auc_ci = m.get("macro_auc_ci")
+        if isinstance(auc_ci, (list, tuple)) and len(auc_ci) >= 3:
+            macro_auc = auc_ci[0]
+            macro_auc_ci = [auc_ci[1], auc_ci[2]]
+        elif isinstance(auc_ci, (list, tuple)) and len(auc_ci) == 2:
+            macro_auc_ci = list(auc_ci)
+
+        balanced_accuracy = m.get("balanced_accuracy")
+        status_note = meta.get("status") or meta.get("caveats")
+        wrong_modality = meta.get("wrong_modality_test") or meta.get("wrong_modality")
+    else:
+        tm = meta.get("test_metrics") or {}
+        accuracy = tm.get("accuracy")
+        balanced_accuracy = tm.get("balanced_accuracy")
+        macro_auc = tm.get("macro_auc")
+        ci_95 = tm.get("ci_95") or {}
+        if isinstance(ci_95, dict):
+            accuracy_ci = ci_95.get("accuracy")
+            macro_auc_ci = ci_95.get("macro_auc")
+        status_note = meta.get("caveats") or meta.get("status")
+        wrong_modality = meta.get("wrong_modality") or meta.get("wrong_modality_test")
+
+    return {
+        "name": key,
+        "classes": classes,
+        "temperature": temperature,
+        "accuracy": accuracy,
+        "accuracy_ci": accuracy_ci,
+        "balanced_accuracy": balanced_accuracy,
+        "macro_auc": macro_auc,
+        "macro_auc_ci": macro_auc_ci,
+        "dataset": dataset,
+        "seed": seed,
+        "backbone": backbone,
+        "status_note": status_note,
+        "wrong_modality": wrong_modality,
+    }
+
+
+def load_baseline(name: str) -> tuple[nn.Module, list[str], float, dict[str, Any]]:
+    """Load DenseNet121 baseline classifier for 'mri', 'us', or 'ct'.
+
+    Returns (model, classes, temperature, raw_meta).
+    Raises RuntimeError("<Modality> model unavailable") if:
+      - ENABLE_BASELINE_MODELS != "1"
+      - weights or metrics file is missing
+    Raises RuntimeError with details if state_dict keys do not match.
+    """
+    key = name.lower()
+    valid_names = {"mri": "MRI", "us": "Ultrasound", "ct": "CT"}
+    if key not in valid_names:
+        raise ValueError(f"Unknown baseline model name: {name}. Must be one of {list(valid_names.keys())}")
+
+    modality_label = valid_names[key]
+
+    if os.getenv("ENABLE_BASELINE_MODELS") != "1":
+        raise RuntimeError(f"{modality_label} model unavailable")
+
+    if key in _BASELINE_CACHE:
+        return _BASELINE_CACHE[key]
+
+    base_weights_dir = Path(__file__).resolve().parent.parent / "weights"
+    weights_path = base_weights_dir / f"{key}_densenet121.pt"
+    metrics_path = base_weights_dir / "metrics" / f"{key}_metrics.json"
+
+    if not weights_path.exists() or not metrics_path.exists():
+        raise RuntimeError(f"{modality_label} model unavailable")
+
+    try:
+        with open(metrics_path, "r", encoding="utf-8") as f:
+            raw_meta = json.load(f)
+    except Exception as exc:
+        raise RuntimeError(f"{modality_label} model unavailable") from exc
+
+    classes = raw_meta.get("classes")
+    if not classes or not isinstance(classes, list):
+        raise RuntimeError(f"Invalid classes in {metrics_path}")
+
+    try:
+        temperature = float(raw_meta.get("temperature", 1.0))
+    except (TypeError, ValueError):
+        temperature = 1.0
+
+    try:
+        model = models.densenet121(weights=None)
+        in_features = model.classifier.in_features
+        model.classifier = nn.Linear(in_features, len(classes))
+        state_dict = torch.load(weights_path, map_location="cpu")
+        model.load_state_dict(state_dict, strict=True)
+        model.eval()
+    except RuntimeError as re:
+        if any(phrase in str(re) for phrase in ["Missing key(s)", "Unexpected key(s)", "size mismatch"]):
+            raise RuntimeError(f"Weights state_dict mismatch for {key}: {re}") from re
+        raise
+    except Exception as exc:
+        raise RuntimeError(f"Failed to load baseline weights for {key}: {exc}") from exc
+
+    _BASELINE_CACHE[key] = (model, classes, temperature, raw_meta)
+    return _BASELINE_CACHE[key]

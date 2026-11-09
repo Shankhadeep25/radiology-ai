@@ -52,8 +52,16 @@ def _build_dynamic_findings(
     telemetry: dict[str, Any] | None,
     all_findings: list[dict] | None,
     extra: str = "",
+    model_version: str | None = None,
 ) -> str:
     """Build dynamic, data-driven medical findings tailored to detected anatomy and metrics."""
+    if "Research Baseline" in str(model_version) or extra == "research_baseline":
+        return (
+            f"RESEARCH BASELINE (NOT CLINICALLY VALIDATED): {modality} DenseNet121 model trained on public dataset only. "
+            f"Predicted dataset class: {primary_label} (uncalibrated probability: {confidence:.1%}).<br/>"
+            f"DISCLAIMER: Probabilities are uncalibrated and baseline classifiers produce confident answers on wrong-modality images. "
+            f"This model has not been clinically validated and must not be used for diagnostic interpretation."
+        )
     tel = telemetry or {}
     loc = tel.get("anatomical_location") or "the lung field"
     diam = tel.get("diameter_mm")
@@ -183,8 +191,14 @@ def _build_dynamic_impression(
     severity: str | None = None,
     all_findings: list[dict] | None = None,
     telemetry: dict[str, Any] | None = None,
+    model_version: str | None = None,
 ) -> str:
     """Synthesize evidence-based clinical impression with actionable recommendations."""
+    if "Research Baseline" in str(model_version):
+        return (
+            f"1. Research baseline classification output: {primary_label}. Not clinically validated for diagnostic use.<br/>"
+            f"2. Independent review by a licensed radiologist is required."
+        )
     tel = telemetry or {}
     loc = tel.get("anatomical_location") or "visualized field"
     conf_pct = round(confidence * 100, 1)
@@ -402,6 +416,7 @@ def generate_report(
         telemetry=telemetry,
         all_findings=all_findings,
         extra=extra,
+        model_version=model_version,
     )
 
     impression = _build_dynamic_impression(
@@ -411,6 +426,7 @@ def generate_report(
         severity=severity,
         all_findings=all_findings,
         telemetry=telemetry,
+        model_version=model_version,
     )
 
     meta = {

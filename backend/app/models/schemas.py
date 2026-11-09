@@ -73,6 +73,13 @@ class PredictionResponse(BaseModel):
     modality_validation: Optional[dict] = None
     anatomy_detection: Optional[dict] = None
     volumetrics: Optional[dict] = None
+    calibrated: Optional[bool] = None
+    in_review_band: Optional[bool] = None
+    status: Optional[str] = None
+    all_scores: Optional[dict[str, float]] = None
+    disclaimer: Optional[str] = None
+    model_metrics: Optional[dict] = None
+    modality_warning: Optional[str] = None
     created_at: datetime
 
 

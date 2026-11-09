@@ -336,3 +336,90 @@ def predict_chest_xray(
             print(f"[AI] Deep Learning inference error: {exc}")
 
     raise RuntimeError("Standalone XR model unavailable")
+
+
+def predict_baseline(name: str, image: Any) -> dict[str, Any]:
+    """Run baseline DenseNet121 inference for 'ct', 'mr'/'mri', or 'us'.
+
+    Loads model with load_baseline(name), normalizes input with preprocess_for(name, image),
+    computes probabilities = softmax(logits / temperature).
+    Returns response with status='research_baseline', calibrated=False, in_review_band=None,
+    model_metrics from normalize_meta, and modality_warning.
+    """
+    import torch
+    from dl_models import load_baseline, normalize_meta
+    from preprocessing import preprocess_for
+
+    key = name.lower()
+    if key in {"mr", "mri"}:
+        norm_name = "mri"
+        mod_label = "MR"
+    elif key in {"us", "ultrasound"}:
+        norm_name = "us"
+        mod_label = "US"
+    elif key in {"ct"}:
+        norm_name = "ct"
+        mod_label = "CT"
+    else:
+        raise ValueError(f"Unknown baseline modality: {name}")
+
+    model, classes, temperature, raw_meta = load_baseline(norm_name)
+    norm_meta = normalize_meta(norm_name, raw_meta)
+
+    tensor = preprocess_for(norm_name, image)
+
+    with torch.no_grad():
+        logits = model(tensor)
+        temp = temperature if temperature and temperature > 0 else 1.0
+        probs = torch.softmax(logits / temp, dim=-1).squeeze(0).cpu().numpy()
+
+    all_scores = {classes[i]: float(probs[i]) for i in range(len(classes))}
+
+    sorted_scores = sorted(all_scores.items(), key=lambda x: x[1], reverse=True)
+    primary_label, top_prob = sorted_scores[0]
+    confidence = round(float(top_prob), 4)
+
+    uncertainty_level = _get_uncertainty_level(confidence)
+
+    all_findings = [
+        {
+            "condition": cls_name,
+            "probability": round(float(prob), 4),
+            "status": "unvalidated",
+            "category": "Baseline",
+            "urgency": "medium",
+            "icon": "📋",
+            "validated": False,
+        }
+        for cls_name, prob in sorted_scores
+    ]
+
+    differential = [
+        {"condition": f["condition"], "probability": f["probability"]}
+        for f in all_findings
+    ]
+
+    version_names = {"mri": "Brain MRI", "us": "Breast Ultrasound", "ct": "Chest CT"}
+    model_version = f"{version_names.get(norm_name, norm_name.upper())} DenseNet121 (Research Baseline)"
+    margin = round(float(sorted_scores[0][1] - (sorted_scores[1][1] if len(sorted_scores) > 1 else 0.0)), 4)
+
+    return {
+        "primary_label": primary_label,
+        "confidence": confidence,
+        "uncertainty_level": uncertainty_level,
+        "calibrated": False,
+        "in_review_band": None,
+        "status": "research_baseline",
+        "all_scores": {k: round(float(v), 4) for k, v in all_scores.items()},
+        "disclaimer": "Research baseline trained on one public dataset. Not clinically validated. Probabilities are not calibrated.",
+        "model_metrics": norm_meta,
+        "modality_warning": "Wrong-modality images can still receive confident answers. Use only images of the matching modality.",
+        "all_findings": all_findings,
+        "differential_diagnosis": differential,
+        "model_version": model_version,
+        "raw_scores": {k: round(float(v), 4) for k, v in all_scores.items()},
+        "calibrated_scores": None,
+        "prediction_margin": margin,
+        "modality": mod_label,
+    }
+

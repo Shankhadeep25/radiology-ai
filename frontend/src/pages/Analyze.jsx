@@ -10,17 +10,17 @@ import { useStudyChat } from '../context/StudyChatContext'
 
 const MODALITIES = [
   { id: 'XR', label: 'X-Ray (MVP)', desc: 'DenseNet121 + Grad-CAM (18 pathologies)' },
-  { id: 'CT', label: 'CT Chest', desc: 'Lung nodule screening & 3D voxel volumetrics' },
-  { id: 'MR', label: 'MRI Brain', desc: 'Brain tumor volume & symmetry analysis' },
-  { id: 'US', label: 'Ultrasound', desc: 'Breast lesion BI-RADS assessment' },
+  { id: 'CT', label: 'CT Chest (Baseline)', desc: 'DenseNet121 research baseline (not clinically validated)' },
+  { id: 'MR', label: 'MRI Brain (Baseline)', desc: 'DenseNet121 research baseline (not clinically validated)' },
+  { id: 'US', label: 'Ultrasound (Baseline)', desc: 'DenseNet121 research baseline (not clinically validated)' },
 ]
 
 const DEMO_CASES = [
   { name: 'Rajesh Kumar', age: 58, sample: 'pneumonia_demo.jpg', label: 'X-Ray Pneumonia', modality: 'XR' },
   { name: 'Priya Sharma', age: 34, sample: 'normal_demo.jpg', label: 'X-Ray Normal', modality: 'XR' },
-  { name: 'Amit Singh', age: 62, sample: 'ct_nodule_demo.jpg', label: 'CT Nodule', modality: 'CT' },
-  { name: 'Meera Iyer', age: 47, sample: 'mri_tumor_demo.jpg', label: 'MRI Tumor', modality: 'MR' },
-  { name: 'Ananya Rao', age: 41, sample: 'us_breast_demo.jpg', label: 'US BI-RADS', modality: 'US' },
+  { name: 'Amit Singh', age: 62, sample: 'ct_nodule_demo.jpg', label: 'CT Adenocarcinoma', modality: 'CT' },
+  { name: 'Meera Iyer', age: 47, sample: 'mri_tumor_demo.jpg', label: 'MRI Glioma', modality: 'MR' },
+  { name: 'Ananya Rao', age: 41, sample: 'us_breast_demo.jpg', label: 'Ultrasound Benign', modality: 'US' },
 ]
 
 export default function Analyze() {
@@ -117,7 +117,13 @@ export default function Analyze() {
       setPipelineStep(5) // Step 5: Clinical Report Finalization
       setResult(analysis)
     } catch (err) {
-      setError(err.response?.data?.detail || 'Analysis failed. Is the backend running on port 8000?')
+      const status = err.response?.status
+      const detail = err.response?.data?.detail
+      if (status === 503) {
+        setError(detail || 'This model is not enabled. Baseline models require ENABLE_BASELINE_MODELS=1.')
+      } else {
+        setError(detail || 'Analysis failed. Is the backend running on port 8000?')
+      }
     } finally {
       setLoading(false)
     }
@@ -127,6 +133,7 @@ export default function Analyze() {
   const report = result?.report
   const study = result?.study
   const tel = prediction?.volumetrics || {}
+  const isBaseline = prediction?.status === 'research_baseline' || ['CT', 'MR', 'US'].includes(modality)
 
   return (
     <div className="space-y-6">
@@ -183,6 +190,14 @@ export default function Analyze() {
                 </button>
               ))}
             </div>
+            {modality !== 'XR' && (
+              <div className="mt-2.5 p-3 bg-red-50 border-2 border-red-500 rounded-xl text-red-700 text-xs font-semibold flex items-start gap-2 shadow-xs">
+                <span className="text-base leading-none select-none">⚠️</span>
+                <span className="leading-relaxed">
+                  RESEARCH BASELINE: NOT CLINICALLY VALIDATED. Not for diagnosis or patient care. Trained on one public dataset. Probabilities are not calibrated. Wrong-modality images can still receive confident answers.
+                </span>
+              </div>
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Scan (PNG / JPG / DICOM)</label>
@@ -244,32 +259,122 @@ export default function Analyze() {
           ) : (
             <>
               <div className={`card card-glow ${
-                prediction.primary_label.includes('Normal') || prediction.primary_label.includes('No Acute') || prediction.primary_label.includes('Negative')
+                isBaseline
+                  ? 'border-2 border-red-500 bg-red-50/20'
+                  : prediction.primary_label.includes('Normal') || prediction.primary_label.includes('No Acute') || prediction.primary_label.includes('Negative')
                   ? 'border-emerald-300 bg-emerald-50'
                   : 'border-rose-300 bg-rose-50'
               }`}>
+                {isBaseline && (
+                  <div className="bg-red-600 text-white p-4 rounded-xl font-bold text-sm tracking-wide shadow-md mb-4 flex items-start gap-2.5">
+                    <span className="text-xl leading-none select-none">⚠️</span>
+                    <div>
+                      <div className="uppercase tracking-wider font-extrabold text-sm mb-1">
+                        RESEARCH BASELINE: NOT CLINICALLY VALIDATED
+                      </div>
+                      <div className="text-xs font-normal text-red-100 leading-relaxed">
+                        Not for diagnosis or patient care. Trained on one public dataset. Probabilities are not calibrated. Wrong-modality images can still receive confident answers.
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-display font-semibold text-slate-900">AI Clinical Prediction</h3>
+                  <h3 className="font-display font-semibold text-slate-900">
+                    {isBaseline ? 'Research Baseline Prediction' : 'AI Clinical Prediction'}
+                  </h3>
                   <span className="text-xs text-slate-500 font-mono">{prediction.model_version?.split('(')[0]}</span>
                 </div>
                 <div className="flex flex-wrap items-center gap-3 mb-4">
                   <div className={`text-3xl font-display font-bold ${
-                    prediction.primary_label.includes('Normal') || prediction.primary_label.includes('No Acute') || prediction.primary_label.includes('Negative')
+                    isBaseline
+                      ? 'text-slate-900'
+                      : prediction.primary_label.includes('Normal') || prediction.primary_label.includes('No Acute') || prediction.primary_label.includes('Negative')
                       ? 'text-emerald-600'
                       : 'text-rose-600'
                   }`}>{prediction.primary_label}</div>
 
-                  <span className={
-                    prediction.uncertainty_level === 'high' ? 'badge-success' :
-                    prediction.uncertainty_level === 'medium' ? 'badge-warn' : 'badge-danger'
-                  }>
-                    {prediction.uncertainty_level === 'needs_review' ? 'Needs Human Review' :
-                     `${prediction.uncertainty_level} confidence`}
-                  </span>
+                  {!isBaseline ? (
+                    <span className={
+                      prediction.uncertainty_level === 'high' ? 'badge-success' :
+                      prediction.uncertainty_level === 'medium' ? 'badge-warn' : 'badge-danger'
+                    }>
+                      {prediction.uncertainty_level === 'needs_review' ? 'Needs Human Review' :
+                       `${prediction.uncertainty_level} confidence`}
+                    </span>
+                  ) : (
+                    <span className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-slate-200 text-slate-700">
+                      Uncalibrated Score: {(prediction.confidence * 100).toFixed(1)}%
+                    </span>
+                  )}
                 </div>
-                <ConfidenceMeter confidence={prediction.confidence} />
 
-                {tel?.anatomical_location && (
+                {!isBaseline && <ConfidenceMeter confidence={prediction.confidence} />}
+
+                {isBaseline && prediction.model_metrics && (
+                  <div className="bg-white/95 border border-red-200 rounded-xl p-3 mb-4 text-xs">
+                    <div className="font-semibold text-slate-800 uppercase tracking-wider text-[11px] mb-2 border-b border-slate-100 pb-1">
+                      Model Benchmark Performance (From Metrics JSON)
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-slate-700">
+                      <div>
+                        <span className="text-slate-500 font-medium">Test Accuracy: </span>
+                        <span className="font-mono font-bold">
+                          {prediction.model_metrics.accuracy !== null && prediction.model_metrics.accuracy !== undefined
+                            ? (prediction.model_metrics.accuracy * 100).toFixed(1) + '%'
+                            : 'null'}
+                        </span>
+                        {prediction.model_metrics.accuracy_ci && (
+                          <span className="text-slate-400 text-[10px] ml-1">
+                            (95% CI: {(prediction.model_metrics.accuracy_ci[0] * 100).toFixed(1)}%–{(prediction.model_metrics.accuracy_ci[1] * 100).toFixed(1)}%)
+                          </span>
+                        )}
+                      </div>
+                      <div>
+                        <span className="text-slate-500 font-medium">Macro AUC: </span>
+                        <span className="font-mono font-bold">
+                          {prediction.model_metrics.macro_auc !== null && prediction.model_metrics.macro_auc !== undefined
+                            ? prediction.model_metrics.macro_auc.toFixed(3)
+                            : 'null'}
+                        </span>
+                        {prediction.model_metrics.macro_auc_ci && (
+                          <span className="text-slate-400 text-[10px] ml-1">
+                            (95% CI: {prediction.model_metrics.macro_auc_ci[0].toFixed(3)}–{prediction.model_metrics.macro_auc_ci[1].toFixed(3)})
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {isBaseline && prediction.all_scores && (
+                  <div className="bg-white/95 border border-slate-200 rounded-xl p-3 mb-4">
+                    <div className="text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">
+                      All Class Probabilities
+                    </div>
+                    <div className="space-y-1.5">
+                      {Object.entries(prediction.all_scores).map(([cls, score]) => (
+                        <div key={cls} className="flex items-center justify-between text-xs">
+                          <span className={`font-medium ${cls === prediction.primary_label ? 'text-slate-900 font-bold' : 'text-slate-600'}`}>{cls}</span>
+                          <div className="flex items-center gap-2">
+                            <div className="w-24 bg-slate-100 rounded-full h-2 overflow-hidden border border-slate-200">
+                              <div className="bg-slate-700 h-2 rounded-full" style={{ width: `${Math.min(100, Math.max(0, score * 100))}%` }} />
+                            </div>
+                            <span className="font-mono text-slate-800 w-12 text-right">{(score * 100).toFixed(1)}%</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {isBaseline && prediction.modality_warning && (
+                  <div className="mt-2 text-xs bg-amber-50 border border-amber-300 text-amber-900 rounded-xl p-2.5">
+                    ⚠️ {prediction.modality_warning}
+                  </div>
+                )}
+
+                {!isBaseline && tel?.anatomical_location && (
                   <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
                     <span className="bg-sky-100 text-sky-800 border border-sky-300 rounded-lg px-2.5 py-1 font-semibold flex items-center gap-1 select-none">
                       📍 {tel.anatomical_location}
@@ -332,17 +437,23 @@ export default function Analyze() {
                 </div>
               )}
 
-              {(prediction.all_findings?.length > 0) ? (
+              {!isBaseline && ((prediction.all_findings?.length > 0) ? (
                 <FindingsPanel findings={prediction.all_findings} primaryLabel={prediction.primary_label} />
               ) : prediction.differential_diagnosis?.length > 0 && (
                 <div className="card">
                   <h3 className="font-display font-semibold text-slate-900 mb-3">Differential Diagnosis</h3>
                   <DifferentialList items={prediction.differential_diagnosis} />
                 </div>
-              )}
+              ))}
 
               {report && (
                 <div className="card bg-slate-50">
+                  {isBaseline && (
+                    <div className="p-3 bg-red-100 border-2 border-red-500 text-red-900 rounded-xl text-xs font-bold uppercase tracking-wider mb-4 flex items-center gap-2">
+                      <span>⚠️</span>
+                      <span>RESEARCH BASELINE: NOT CLINICALLY VALIDATED. Not for diagnosis or patient care.</span>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between mb-4">
                     <div>
                       <h3 className="font-display font-semibold text-slate-900">Dynamic Clinical Report</h3>
