@@ -170,3 +170,4 @@
   },
   "status": "NOT approved for app use. On the Testing folder: accuracy 0.894 (95% CI 0.879-0.909); about 15% of tumour images predicted as notumor; calibration and review threshold did not hold (validation set shares patients/near-copies with training); model gives confident answers on chest CT, chest X-ray and breast ultrasound images. Public data only; not clinically validated."
 }
+

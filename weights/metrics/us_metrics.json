@@ -1,0 +1,164 @@
+{
+  "modality": "breast ultrasound (BUSI)",
+  "classes": [
+    "benign",
+    "malignant",
+    "normal"
+  ],
+  "dataset": "aryashah2k/breast-ultrasound-images-dataset, Dataset_BUSI_with_GT, _mask files excluded",
+  "n_images": 762,
+  "split": {
+    "train": 513,
+    "val": 129,
+    "test": 120,
+    "method": "StratifiedGroupKFold by dHash near-duplicate group (T_DUP=6), seed 42"
+  },
+  "seed": 42,
+  "backbone": "torchvision densenet121 IMAGENET1K_V1",
+  "preprocessing": "RGB, pad to square (black), resize 224x224, ImageNet mean/std",
+  "training": {
+    "stage_a_best_val_loss": 0.4226881265640259,
+    "stage_b_best_val_loss": 0.32953310012817383,
+    "class_weights": [
+      0.595818817615509,
+      1.2481751441955566,
+      1.9213483333587646
+    ]
+  },
+  "temperature": 0.6994764742884211,
+  "test_metrics": {
+    "accuracy": 0.8,
+    "macro_auc": 0.921951323113244,
+    "brier": 0.3082489888013652,
+    "confusion": [
+      [
+        57,
+        9,
+        1
+      ],
+      [
+        7,
+        25,
+        2
+      ],
+      [
+        1,
+        4,
+        14
+      ]
+    ],
+    "per_class": {
+      "benign": {
+        "class": 0,
+        "sensitivity": 0.8507462686567164,
+        "specificity": 0.8490566037735849,
+        "auc": 0.9203041396789636
+      },
+      "malignant": {
+        "class": 1,
+        "sensitivity": 0.7352941176470589,
+        "specificity": 0.8488372093023255,
+        "auc": 0.880984952120383
+      },
+      "normal": {
+        "class": 2,
+        "sensitivity": 0.7368421052631579,
+        "specificity": 0.9702970297029703,
+        "auc": 0.9645648775403857
+      }
+    },
+    "reliability": [
+      {
+        "range": "0.00-0.50",
+        "n": 1,
+        "mean_conf": 0.48823556142513586,
+        "accuracy": 0.0
+      },
+      {
+        "range": "0.50-0.60",
+        "n": 16,
+        "mean_conf": 0.545191711906529,
+        "accuracy": 0.75
+      },
+      {
+        "range": "0.60-0.70",
+        "n": 8,
+        "mean_conf": 0.6531666846516522,
+        "accuracy": 0.625
+      },
+      {
+        "range": "0.70-0.80",
+        "n": 21,
+        "mean_conf": 0.7582009001461014,
+        "accuracy": 0.5714285714285714
+      },
+      {
+        "range": "0.80-0.90",
+        "n": 16,
+        "mean_conf": 0.8578499860014615,
+        "accuracy": 0.8125
+      },
+      {
+        "range": "0.90-0.95",
+        "n": 10,
+        "mean_conf": 0.9309409366168856,
+        "accuracy": 0.8
+      },
+      {
+        "range": "0.95-1.00",
+        "n": 48,
+        "mean_conf": 0.984911072928186,
+        "accuracy": 0.9583333333333334
+      }
+    ],
+    "malignant_called_normal": 0.058823529411764705,
+    "ci_95": {
+      "accuracy": [
+        0.7333333333333333,
+        0.8666666666666667
+      ],
+      "macro_auc": [
+        0.8804082291535015,
+        0.9569126998665684
+      ],
+      "malignant_called_normal": [
+        0.0,
+        0.14708605664488014
+      ]
+    }
+  },
+  "wrong_modality": {
+    "brain MRI": {
+      "n": 100,
+      "mean_top_conf": 0.8887743949890137,
+      "share_conf_over_0.8": 0.7799999713897705,
+      "pred_dist": {
+        "benign": 85,
+        "malignant": 15,
+        "normal": 0
+      }
+    },
+    "chest CT": {
+      "n": 100,
+      "mean_top_conf": 0.8922457695007324,
+      "share_conf_over_0.8": 0.7799999713897705,
+      "pred_dist": {
+        "benign": 85,
+        "malignant": 15,
+        "normal": 0
+      }
+    },
+    "chest CT (jpg)": {
+      "n": 12,
+      "mean_top_conf": 0.8853320479393005,
+      "share_conf_over_0.8": 0.6666666865348816,
+      "pred_dist": {
+        "benign": 8,
+        "malignant": 4,
+        "normal": 0
+      }
+    }
+  },
+  "repo_commit": "64617d0",
+  "caveats": "Public data only, no patient IDs, tiny test split, not clinically validated."
+}

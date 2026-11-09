@@ -1,0 +1,198 @@
+{
+  "modality": "chest CT (4 histology classes)",
+  "classes": [
+    "adenocarcinoma",
+    "large_cell",
+    "normal",
+    "squamous"
+  ],
+  "dataset": "mohamedhanyyy/chest-ctscan-images (Data/train, valid, test), 1000 images as shipped",
+  "cleaning": {
+    "label_conflict_images_dropped": 2,
+    "train_valid_copies_of_test_images_dropped": 63,
+    "extra_copies_inside_groups_dropped": 118,
+    "duplicate_rule": "pixel correlation >= 0.99 on 64x64 grayscale thumbnails, one image kept per group",
+    "distinct_normal_scans_total": 40
+  },
+  "split": {
+    "train": 404,
+    "val": 135,
+    "test": 278,
+    "method": "test folder as shipped (deduplicated); train+valid pool deduplicated and re-split 75/25 with StratifiedGroupKFold, seed 42"
+  },
+  "seed": 42,
+  "backbone": "torchvision densenet121 IMAGENET1K_V1",
+  "preprocessing": "RGB, pad to square (black), resize 224x224, ImageNet mean/std",
+  "training": {
+    "stage_a_best_val_loss": 0.8420328497886658,
+    "stage_b_best_val_loss": 0.7183871269226074,
+    "chosen_stage": "b",
+    "class_weights": [
+      0.7945124506950378,
+      0.9950859546661377,
+      2.437452793121338,
+      0.8988882303237915
+    ],
+    "weights_rule": "sqrt of inverse frequency",
+    "augmentation": "RandomResizedCrop(0.8-1.0), random down/up-resolution, small affine, colour jitter, no flips"
+  },
+  "temperature": 0.9717976730433531,
+  "test_metrics": {
+    "accuracy": 0.5935251798561151,
+    "balanced_accuracy": 0.6766339869281046,
+    "majority_class_share": 0.4316546762589928,
+    "macro_auc": 0.8854839360053225,
+    "brier": 0.523420384380717,
+    "confusion": [
+      [
+        76,
+        41,
+        2,
+        1
+      ],
+      [
+        2,
+        49,
+        0,
+        0
+      ],
+      [
+        1,
+        0,
+        14,
+        2
+      ],
+      [
+        37,
+        26,
+        1,
+        26
+      ]
+    ],
+    "per_class": {
+      "adenocarcinoma": {
+        "class": 0,
+        "sensitivity": 0.6333333333333333,
+        "specificity": 0.7468354430379747,
+        "auc": 0.7776371308016877
+      },
+      "large_cell": {
+        "class": 1,
+        "sensitivity": 0.9607843137254902,
+        "specificity": 0.7048458149779736,
+        "auc": 0.9177679882525697
+      },
+      "normal": {
+        "class": 2,
+        "sensitivity": 0.8235294117647058,
+        "specificity": 0.9885057471264368,
+        "auc": 0.9646157313500112
+      },
+      "squamous": {
+        "class": 3,
+        "sensitivity": 0.28888888888888886,
+        "specificity": 0.9840425531914894,
+        "auc": 0.8819148936170212
+      }
+    },
+    "reliability": [
+      {
+        "range": "0.00-0.50",
+        "n": 48,
+        "mean_conf": 0.4440471029637992,
+        "accuracy": 0.3333333333333333
+      },
+      {
+        "range": "0.50-0.60",
+        "n": 49,
+        "mean_conf": 0.5440379173142167,
+        "accuracy": 0.46938775510204084
+      },
+      {
+        "range": "0.60-0.70",
+        "n": 45,
+        "mean_conf": 0.6462599510942652,
+        "accuracy": 0.5555555555555556
+      },
+      {
+        "range": "0.70-0.80",
+        "n": 45,
+        "mean_conf": 0.7540423573578546,
+        "accuracy": 0.6444444444444445
+      },
+      {
+        "range": "0.80-0.90",
+        "n": 47,
+        "mean_conf": 0.850021087979419,
+        "accuracy": 0.723404255319149
+      },
+      {
+        "range": "0.90-0.95",
+        "n": 24,
+        "mean_conf": 0.9267300902305896,
+        "accuracy": 0.7916666666666666
+      },
+      {
+        "range": "0.95-1.00",
+        "n": 20,
+        "mean_conf": 0.9757994547494615,
+        "accuracy": 0.95
+      }
+    ],
+    "cancer_called_normal": 0.011494252873563218,
+    "normal_called_cancer": 0.17647058823529413,
+    "cancer_type_acc": 0.5862068965517241,
+    "ci_95": {
+      "accuracy": [
+        0.5323741007194245,
+        0.6510791366906474
+      ],
+      "balanced_accuracy": [
+        0.6171903553088061,
+        0.7298256911781243
+      ],
+      "macro_auc": [
+        0.853675919072344,
+        0.9114416528270227
+      ],
+      "cancer_called_normal": [
+        0.0,
+        0.026717557251908396
+      ],
+      "normal_called_cancer": [
+        0.0,
+        0.38916666666666644
+      ],
+      "cancer_type_acc": [
+        0.528511729679317,
+        0.6477503071253071
+      ]
+    }
+  },
+  "wrong_modality": {
+    "brain MRI": {
+      "n": 100,
+      "mean_top_conf": 0.7422865033149719,
+      "share_conf_over_0.8": 0.41999998688697815,
+      "pred_dist": {
+        "adenocarcinoma": 2,
+        "large_cell": 37,
+        "normal": 61,
+        "squamous": 0
+      }
+    },
+    "breast ultrasound": {
+      "n": 100,
+      "mean_top_conf": 0.6773883700370789,
+      "share_conf_over_0.8": 0.33000001311302185,
+      "pred_dist": {
+        "adenocarcinoma": 17,
+        "large_cell": 2,
+        "normal": 71,
+        "squamous": 10
+      }
+    }
+  },
+  "repo_commit": "64617d0",
+  "caveats": "Public data only, no patient IDs, only 40 distinct normal scans, small validation split, not clinically validated."
+}
