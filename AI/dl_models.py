@@ -15,9 +15,13 @@ Each model implements:
 from __future__ import annotations
 
 import json
+import logging
 import os
+import traceback
 from pathlib import Path
 from typing import Any, Tuple
+
+_logger = logging.getLogger(__name__)
 
 import numpy as np
 import torch
@@ -471,7 +475,10 @@ def load_baseline(name: str) -> tuple[nn.Module, list[str], float, dict[str, Any
     modality_label = valid_names[key]
 
     if os.getenv("ENABLE_BASELINE_MODELS") != "1":
-        raise RuntimeError(f"{modality_label} model unavailable")
+        raise RuntimeError(
+            f"{modality_label} model unavailable: "
+            "disabled: set ENABLE_BASELINE_MODELS=1 and restart the backend"
+        )
 
     if key in _BASELINE_CACHE:
         return _BASELINE_CACHE[key]
@@ -480,14 +487,29 @@ def load_baseline(name: str) -> tuple[nn.Module, list[str], float, dict[str, Any
     weights_path = base_weights_dir / f"{key}_densenet121.pt"
     metrics_path = base_weights_dir / "metrics" / f"{key}_metrics.json"
 
-    if not weights_path.exists() or not metrics_path.exists():
-        raise RuntimeError(f"{modality_label} model unavailable")
+    if not weights_path.exists():
+        raise RuntimeError(
+            f"{modality_label} model unavailable: "
+            f"weights file missing: weights/{key}_densenet121.pt"
+        )
+    if not metrics_path.exists():
+        raise RuntimeError(
+            f"{modality_label} model unavailable: "
+            f"metrics file missing: weights/metrics/{key}_metrics.json"
+        )
 
     try:
         with open(metrics_path, "r", encoding="utf-8") as f:
             raw_meta = json.load(f)
     except Exception as exc:
-        raise RuntimeError(f"{modality_label} model unavailable") from exc
+        _logger.error(
+            "Failed to read metrics for %s baseline model:\n%s",
+            key, traceback.format_exc(),
+        )
+        raise RuntimeError(
+            f"{modality_label} model unavailable: "
+            f"failed to load weights: {type(exc).__name__}"
+        ) from exc
 
     classes = raw_meta.get("classes")
     if not classes or not isinstance(classes, list):
@@ -507,10 +529,24 @@ def load_baseline(name: str) -> tuple[nn.Module, list[str], float, dict[str, Any
         model.eval()
     except RuntimeError as re:
         if any(phrase in str(re) for phrase in ["Missing key(s)", "Unexpected key(s)", "size mismatch"]):
-            raise RuntimeError(f"Weights state_dict mismatch for {key}: {re}") from re
+            _logger.error(
+                "State-dict mismatch loading %s baseline model:\n%s",
+                key, traceback.format_exc(),
+            )
+            raise RuntimeError(
+                f"{modality_label} model unavailable: "
+                f"failed to load weights: {type(re).__name__}"
+            ) from re
         raise
     except Exception as exc:
-        raise RuntimeError(f"Failed to load baseline weights for {key}: {exc}") from exc
+        _logger.error(
+            "Unexpected error loading %s baseline model:\n%s",
+            key, traceback.format_exc(),
+        )
+        raise RuntimeError(
+            f"{modality_label} model unavailable: "
+            f"failed to load weights: {type(exc).__name__}"
+        ) from exc
 
     _BASELINE_CACHE[key] = (model, classes, temperature, raw_meta)
     return _BASELINE_CACHE[key]
