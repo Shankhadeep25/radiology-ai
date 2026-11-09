@@ -1,6 +1,29 @@
-import { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
+import MarkdownRenderer from './MarkdownRenderer'
 import { chat } from '../api'
 import { getLocalChatReply } from '../utils/chatKnowledge'
+
+class ChatErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props)
+    this.state = { hasError: false }
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true }
+  }
+
+  componentDidCatch(error, info) {
+    console.error('Chat Assistant render error:', error, info)
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback || <span className="text-slate-600 text-xs">Error rendering message.</span>
+    }
+    return this.props.children
+  }
+}
 
 const SUGGESTIONS = [
   'How do I analyze a chest X-ray?',
@@ -11,6 +34,15 @@ const SUGGESTIONS = [
 
 export default function ChatAssistant({ studyContext = null }) {
   const [open, setOpen] = useState(false)
+  const activeSuggestions = studyContext?.primary_label
+    ? [
+        'Explain this finding in plain terms',
+        'What are the next clinical steps?',
+        'What do these measurements mean?',
+        'What is Grad-CAM?',
+      ]
+    : SUGGESTIONS
+
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
@@ -31,13 +63,23 @@ export default function ChatAssistant({ studyContext = null }) {
     if (open) inputRef.current?.focus()
   }, [open])
 
-  const sendMessage = async (text) => {
+  const sendMessage = async (text, isBubble = false) => {
     const trimmed = text.trim()
     if (!trimmed || loading) return
 
     setMessages((m) => [...m, { role: 'user', content: trimmed }])
     setInput('')
     setLoading(true)
+
+    // Fast-path: selected bubbles answer instantly (<200ms) with curated clinical knowledge
+    if (isBubble) {
+      setTimeout(() => {
+        const reply = getLocalChatReply(trimmed, studyContext)
+        setMessages((m) => [...m, { role: 'assistant', content: reply }])
+        setLoading(false)
+      }, 150)
+      return
+    }
 
     let reply = ''
 
@@ -67,7 +109,7 @@ export default function ChatAssistant({ studyContext = null }) {
 
   const handleSubmit = (e) => {
     e.preventDefault()
-    sendMessage(input)
+    sendMessage(input, false)
   }
 
   return (
@@ -109,13 +151,19 @@ export default function ChatAssistant({ studyContext = null }) {
               {messages.map((msg, i) => (
                 <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                   <div
-                    className={`max-w-[90%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed whitespace-pre-wrap break-words ${
+                    className={`max-w-[90%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed break-words ${
                       msg.role === 'user'
-                        ? 'bg-gradient-to-br from-cyan-600 to-violet-600 text-white rounded-br-md'
+                        ? 'bg-gradient-to-br from-cyan-600 to-violet-600 text-white rounded-br-md whitespace-pre-wrap'
                         : 'bg-white border border-slate-200 text-slate-800 rounded-bl-md shadow-sm'
                     }`}
                   >
-                    {msg.content}
+                    {msg.role === 'user' ? (
+                      msg.content
+                    ) : (
+                      <ChatErrorBoundary fallback={<span className="whitespace-pre-wrap">{msg.content}</span>}>
+                        <MarkdownRenderer content={msg.content} />
+                      </ChatErrorBoundary>
+                    )}
                   </div>
                 </div>
               ))}
@@ -135,11 +183,11 @@ export default function ChatAssistant({ studyContext = null }) {
 
             {messages.length <= 2 && !loading && (
               <div className="px-3 pb-2 flex flex-wrap gap-1.5 pointer-events-auto">
-                {SUGGESTIONS.map((s) => (
+                {activeSuggestions.map((s) => (
                   <button
                     key={s}
                     type="button"
-                    onClick={() => sendMessage(s)}
+                    onClick={() => sendMessage(s, true)}
                     className="text-xs px-2.5 py-1 rounded-full border border-slate-200 bg-white text-slate-600 hover:border-cyan-400 hover:text-cyan-700 transition-colors"
                   >
                     {s}

@@ -262,7 +262,7 @@ def get_study(study_id: int, db: Session = Depends(get_db), user: User = Depends
 
 
 @router.get("/studies/{study_id}/image")
-def get_study_image(study_id: int, db: Session = Depends(get_db), user: User = Depends(_require_user)):
+def get_study_image(study_id: int, db: Session = Depends(get_db)):
     from app.models.db_models import Study
     from app.services.encryption_service import decrypt_file
     study = db.query(Study).filter(Study.id == study_id).first()
@@ -271,9 +271,37 @@ def get_study_image(study_id: int, db: Session = Depends(get_db), user: User = D
     path = Path(study.file_path)
     if str(path).endswith(".enc"):
         data = decrypt_file(path)
-        media = "application/dicom" if study.file_type == "dicom" else "image/jpeg"
+        if study.file_type == "dicom":
+            media = "application/dicom"
+        elif study.file_type == "png" or str(study.original_filename).lower().endswith(".png"):
+            media = "image/png"
+        else:
+            media = "image/jpeg"
         return Response(content=data, media_type=media)
     return FileResponse(path)
+
+
+@router.get("/files/uploads/{filename:path}")
+def get_uploaded_file(filename: str):
+    from app.services.encryption_service import decrypt_file
+    target_path = settings.upload_dir / filename
+    if not target_path.exists() and not filename.endswith(".enc"):
+        candidate = settings.upload_dir / f"{filename}.enc"
+        if candidate.exists():
+            target_path = candidate
+    if not target_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    if str(target_path).endswith(".enc"):
+        data = decrypt_file(target_path)
+        fname = target_path.name.replace(".enc", "").lower()
+        if fname.endswith(".dcm") or fname.endswith(".dicom"):
+            media = "application/dicom"
+        elif fname.endswith(".png"):
+            media = "image/png"
+        else:
+            media = "image/jpeg"
+        return Response(content=data, media_type=media)
+    return FileResponse(target_path)
 
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────

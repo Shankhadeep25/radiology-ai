@@ -17,6 +17,22 @@ WELCOME = (
 
 TOPICS: list[tuple[list[str], str]] = [
     (
+        ["validator", "rejected", "reject", "authenticity", "fake scan", "non-medical", "invalid image", "selfie", "portrait"],
+        "Our platform enforces strict multi-tier medical image authenticity guards (AI/validator.py). "
+        "Every upload is analyzed for authentic radiological characteristics, including dynamic range, "
+        "grayscale entropy, aspect ratios, and modality-specific anatomical profiles (e.g. bilateral lung field "
+        "symmetry for X-rays, axial calvarium oval for brain MRI, thoracic wall contour for CT, or acoustic fan for US). "
+        "Monochrome selfies, natural photos, and cross-modality mismatches are automatically rejected to prevent "
+        "ungrounded AI hallucinations and safeguard clinical decision pipelines.",
+    ),
+    (
+        ["montage", "slice grid", "series", "multi-slice", "sub-slices", "grid"],
+        "Clinical CT and MRI scans frequently arrive as 2x2, 3x3, or 4x4 multi-slice montage grids. "
+        "Our automated montage detector (AI/montage_detector.py) identifies uniform tile layouts, "
+        "segments each anatomical axial section, and evaluates each slice individually through deep learning vision backbones. "
+        "This allows discrete 3D voxel volume integration and spatial localization without requiring heavy desktop PACS installations.",
+    ),
+    (
         ["grad-cam", "gradcam", "heatmap", "explain", "explainability", "why ai", "attention"],
         "Grad-CAM (Gradient-weighted Class Activation Mapping) computes the gradients of the target pathology "
         "score with respect to the feature maps of the final convolutional layer (denseblock4 in DenseNet121). "
@@ -30,6 +46,24 @@ TOPICS: list[tuple[list[str], str]] = [
         "and air bronchograms where alveolar air is replaced by exudate. Our DenseNet121 model evaluates 18 "
         "distinct chest pathologies simultaneously. Always correlate AI findings with patient temperature, WBC count, "
         "and physical auscultation before initiating antimicrobial therapy.",
+    ),
+    (
+        ["pneumothorax", "collapsed lung"],
+        "Pneumothorax is an acute clinical emergency indicated by separation of the visceral pleural line "
+        "from the chest wall with complete absence of peripheral lung markings. Our system flags pneumothorax "
+        "with Critical/High urgency, prompting immediate clinician assessment for tension physiology and tube thoracostomy.",
+    ),
+    (
+        ["cardiomegaly", "enlarged heart", "ctr"],
+        "Cardiomegaly indicates an enlarged cardiac silhouette where the transverse cardiothoracic ratio (CTR) "
+        "exceeds 0.50 on standard PA chest radiographs. It frequently correlates with chronic hypertension, cardiomyopathy, "
+        "or congestive heart failure and is often accompanied by upper-lobe venous prominence and pleural effusions.",
+    ),
+    (
+        ["pleural effusion", "effusion", "fluid"],
+        "Pleural effusion manifests as dependent homogeneous fluid density blunting the costophrenic angles. "
+        "Larger collections cause compressive passive atelectasis at the adjacent lung base. Management focuses on "
+        "evaluating fluid volume and determining whether the effusion is transudative or exudative.",
     ),
     (
         ["densenet", "chexnet", "torchxrayvision", "neural", "deep learning", "ai model", "architecture"],
@@ -54,8 +88,8 @@ TOPICS: list[tuple[list[str], str]] = [
     (
         ["mri", "mr ", "brain", "tumor", "glioma", "brats"],
         "MRI Brain analysis evaluates hemispheric structural asymmetry, focal T2/FLAIR hyperintensity, and perilesional "
-        "vasogenic edema. It quantifies estimated tumor volume in mL and mass in grams to monitor longitudinal disease "
-        "burden and response to therapy. Contrast-enhanced MRI (gadolinium) is recommended for lesion enhancement mapping.",
+        "vasogenic edema. It quantifies estimated tumor volume in mL, mass in grams, and midline shift in mm "
+        "to monitor longitudinal mass effect and response to therapy. Contrast-enhanced MRI (gadolinium) is recommended.",
     ),
     (
         ["ultrasound", "us ", "breast", "bi-rads", "birads"],
@@ -97,6 +131,28 @@ def generate_reply(message: str, study_context: Optional[dict] = None) -> str:
     if not text:
         return "Please type a clinical or technical question and I'll be glad to help."
 
+    # Immediate greeting handling
+    if text in ("hello", "hi", "hey", "start", "help", "welcome", "good morning", "good afternoon", "good evening"):
+        return WELCOME
+
+    # Conversational pleasantries & acknowledgments (must not dump patient/medical data)
+    if re.search(r"^(thanks?|thank you|thx|much appreciated|appreciate it|thank you so much)[\s!.]*$", text):
+        return "You're welcome! Let me know if you have any questions about this study or need help interpreting findings."
+
+    if re.search(r"^(ok|okay|got it|understood|sure|alright|great|perfect|sounds good)[\s!.]*$", text):
+        return "Understood. Feel free to ask whenever you need further details or guideline recommendations."
+
+    if re.search(r"^(bye|goodbye|see you|take care)[\s!.]*$", text):
+        return "Goodbye! Feel free to return whenever you need clinical imaging support."
+
+    # Route through the Clinical RAG Service
+    try:
+        from app.services.rag_service import answer_clinical_query_sync
+        return answer_clinical_query_sync(message, study_context)
+    except Exception as exc:
+        pass
+
+    # Safety Fallback to rule engine if RAG unavailable
     if study_context:
         ctx_reply = _reply_from_study_context(text, study_context)
         if ctx_reply:
@@ -106,20 +162,13 @@ def generate_reply(message: str, study_context: Optional[dict] = None) -> str:
         if any(kw in text for kw in keywords):
             return answer
 
-    if "?" in message or any(w in text for w in ["what", "how", "why", "when", "where", "can", "does", "is"]):
-        return (
-            "I can assist with clinical and technical inquiries regarding:\n"
-            "• Current study findings, lesion metrics, and anatomical locations\n"
-            "• Grad-CAM activation and neural network explainability\n"
-            "• Diagnostic criteria (Fleischner nodule follow-up, BI-RADS protocols)\n"
-            "• Supported modalities (X-Ray, CT, MRI, Ultrasound)\n"
-            "• Generating structured PDF radiology reports\n\n"
-            "Please ask a specific question or type **help** for options."
-        )
-
     return (
-        "I am your Radiology AI Assistant. Ask about the current scan's findings, "
-        "Grad-CAM explainability, clinical guidelines, or PDF reporting. Type **help** for guidance."
+        "I am your Radiology AI Clinical Assistant. You can ask about:\n"
+        "• Specific findings, lesion diameter, volume, and anatomical localization\n"
+        "• Clinical next steps per Fleischner Society 2017 criteria or ACR BI-RADS\n"
+        "• Grad-CAM explainability and neural network attention\n"
+        "• Medical image validation and montage scan processing\n\n"
+        "Please ask your question and I will correlate it with current clinical evidence."
     )
 
 
@@ -130,25 +179,86 @@ def _reply_from_study_context(text: str, ctx: dict) -> Optional[str]:
     telemetry = ctx.get("telemetry") or {}
     loc = telemetry.get("anatomical_location") or "the visualized field"
     diam = telemetry.get("diameter_mm")
+    vol_mm3 = telemetry.get("volume_mm3")
+    vol_ml = telemetry.get("volume_ml")
+    birads = telemetry.get("birads")
+    fleischner = telemetry.get("fleischner_category")
+    shift_mm = telemetry.get("midline_shift_mm")
 
+    if not label or confidence is None:
+        return None
+
+    pct = round(float(confidence) * 100, 1)
+
+    # 1. Plain language / patient consultation explanation
+    if any(w in text for w in ["plain", "simple", "patient", "layman", "easy words", "simple terms", "consult"]):
+        if any(norm in label for norm in ("Normal", "No Acute", "Negative")):
+            return (
+                f"**Patient Summary ({modality})**: Your scan is **normal** ({pct}% confidence) with no signs of acute infection or masses. "
+                "Your doctor will discuss your symptoms and ongoing care."
+            )
+        return (
+            f"**Patient Summary ({modality})**: The scan identified **{label}** in the **{loc}** ({pct}% confidence). "
+            "This warrants clinical attention; your physician and radiologist will recommend the next steps."
+        )
+
+    # 2. Measurement and quantitative telemetry queries
+    if any(w in text for w in ["measure", "diameter", "volume", "mass", "metrics", "size", "span", "telemetry"]):
+        details = [f"**Measurements ({modality} - {label})**:", f"• **Location**: {loc}"]
+        if diam:
+            details.append(f"• **Diameter**: {diam} mm")
+        if vol_mm3:
+            details.append(f"• **3D Volume**: {vol_mm3} mm³")
+        if vol_ml:
+            details.append(f"• **Volume**: {vol_ml} mL")
+        if shift_mm is not None and shift_mm > 0:
+            details.append(f"• **Midline Shift**: {shift_mm} mm")
+        if fleischner:
+            details.append(f"• **Fleischner**: {fleischner}")
+        if birads:
+            details.append(f"• **BI-RADS**: {birads}")
+        return "\n".join(details)
+
+    # 3. Clinical next steps and management protocol
+    if any(w in text for w in ["next step", "recommend", "protocol", "what should", "what to do", "follow up", "biopsy"]):
+        if modality == "CT":
+            return (
+                f"**Next Steps (CT - {label})**:\n"
+                f"1. Lesion in **{loc}** ({pct}% confidence).\n"
+                f"2. Apply Fleischner 2017: {fleischner or 'Repeat CT at 3–12 months'}.\n"
+                "3. Correlate with clinical risk factors and history."
+            )
+        if modality == "MR":
+            return (
+                f"**Next Steps (Brain MRI - {label})**:\n"
+                f"1. Abnormal mass in **{loc}** ({pct}% confidence).\n"
+                "2. Contrast-enhanced MRI (gadolinium) recommended.\n"
+                "3. Neurosurgical evaluation for mass effect management."
+            )
+        if modality == "US":
+            return (
+                f"**Next Steps (Breast US - {label})**:\n"
+                f"1. Lesion in **{loc}** (**{birads or 'BI-RADS 4'}**, {pct}% confidence).\n"
+                "2. Ultrasound-guided core needle biopsy indicated.\n"
+                "3. Bilateral diagnostic mammography correlation."
+            )
+        return (
+            f"**Next Steps (CXR - {label})**:\n"
+            f"1. Finding centered in **{loc}** ({pct}% confidence).\n"
+            "2. Correlate with auscultation, temperature, and inflammatory labs (CBC, CRP).\n"
+            "3. Repeat CXR in 4–6 weeks to verify radiographic resolution."
+        )
+
+    # 4. General study finding questions
     if any(w in text for w in [
         "this study", "this result", "my result", "finding", "diagnosis",
-        "what does", "my diagnosis", "patient", "wrong", "mean", "where",
-        "next step", "recommend", "biopsy", "location", "measure",
+        "what does", "my diagnosis", "wrong", "mean", "where",
     ]):
-        if label and confidence is not None:
-            pct = round(float(confidence) * 100, 1)
-            span_text = f", measuring approximately {diam} mm," if diam else ""
-            if "Normal" in label or "No Acute" in label or "Negative" in label:
-                return (
-                    f"For the current {modality} study: The primary AI assessment is **{label}** "
-                    f"with {pct}% confidence. No focal suspicious lesions or acute pathology were detected. "
-                    "Clinical correlation remains recommended if acute symptoms persist."
-                )
-            return (
-                f"For the current {modality} study: Primary finding is **{label}** ({pct}% AI confidence) "
-                f"located in the **{loc}**{span_text}. "
-                "Examine the Grad-CAM activation heatmap overlay to review the focal region of interest. "
-                "Refer to the structured PDF report for differential considerations and guideline-based follow-up."
-            )
+        span_text = f", measuring approximately {diam} mm," if diam else ""
+        if any(norm in label for norm in ("Normal", "No Acute", "Negative")):
+            return f"**Study Finding ({modality})**: Primary assessment is **{label}** ({pct}% confidence). No acute focal lesions detected."
+        return f"**Study Finding ({modality})**: Primary finding is **{label}** ({pct}% confidence) in the **{loc}**{span_text}. Review the Grad-CAM heatmap overlay to view the focal region."
+
+    return None
+
     return None

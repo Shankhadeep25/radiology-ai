@@ -161,7 +161,17 @@ def _captum_gradcam(
 
     # Determine target pathology index
     mapped_name = REVERSE_LABEL_MAP.get(target_label, target_label)
-    if target_label in pathologies:
+    if modality == "XR" and target_label == "Pneumonia" and "Lung Opacity" in pathologies and "Pneumonia" in pathologies:
+        pneu_idx = pathologies.index("Pneumonia")
+        op_idx = pathologies.index("Lung Opacity")
+        try:
+            with torch.no_grad():
+                pred_out = model(tensor).squeeze()
+                target_idx = op_idx if pred_out[op_idx] > pred_out[pneu_idx] else pneu_idx
+        except Exception:
+            target_idx = op_idx
+        active_label = "Pneumonia"
+    elif target_label in pathologies:
         target_idx = pathologies.index(target_label)
         active_label = target_label
     elif mapped_name in pathologies:
@@ -211,7 +221,7 @@ def _captum_gradcam(
             cam = (cam - c_min) / (c_max - c_min + 1e-8)
         else:
             cam = np.zeros_like(cam)
-        slice_label_extra = f" [Slice #{key_s["slice_index"]}/{len(slices)}]"
+        slice_label_extra = f" [Slice #{key_s['slice_index']}/{len(slices)}]"
 
     h, w = original.shape[:2]
 

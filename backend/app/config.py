@@ -32,12 +32,31 @@ class Settings(BaseSettings):
     model_name: str = "densenet121-res224-all"
     confidence_review_threshold: float = 0.75
 
+    # Optional LLM & RAG configuration for clinical chat assistant
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-3.5-flash"
+    openai_api_key: str | None = None
+    openai_api_base: str | None = None
+    rag_top_k: int = 3
+
     @property
     def base_dir(self) -> Path:
         return BASE_DIR
 
+    @property
+    def db_url(self) -> str:
+        url = self.database_url
+        if url.startswith("sqlite:///"):
+            clean = url.replace("sqlite:///", "")
+            p = Path(clean)
+            if not p.is_absolute():
+                p = (self.base_dir / clean.lstrip("./")).resolve()
+            p.parent.mkdir(parents=True, exist_ok=True)
+            return f"sqlite:///{p.as_posix()}"
+        return url
+
     class Config:
-        env_file = ".env"
+        env_file = [str(BASE_DIR / ".env"), ".env"]
         extra = "ignore"
 
 

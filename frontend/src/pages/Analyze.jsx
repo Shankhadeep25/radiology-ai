@@ -44,16 +44,19 @@ export default function Analyze() {
   useEffect(() => {
     if (result?.prediction) {
       setStudyContext({
+        patient_name: patientName,
+        patient_age: patientAge,
         primary_label: result.prediction.primary_label,
         confidence: result.prediction.confidence,
+        severity: result.prediction.severity,
         modality,
         telemetry: result.prediction.volumetrics,
+        findings: result.report?.findings,
+        impression: result.report?.impression,
+        all_findings: result.prediction.differential_diagnosis,
       })
-    } else {
-      setStudyContext(null)
     }
-    return () => setStudyContext(null)
-  }, [result, modality, setStudyContext])
+  }, [result, modality, patientName, patientAge, setStudyContext])
 
   const handleFileChange = (e) => {
     const f = e.target.files[0]

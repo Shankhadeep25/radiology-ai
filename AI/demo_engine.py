@@ -64,7 +64,8 @@ def _score_all_conditions(features: dict) -> dict[str, float]:
     scores["Atelectasis"] = min(0.88, f["bilateral_diff"] * 0.45 + f["lower_dark"] * 0.35)
     scores["Consolidation"] = min(0.90, f["lower_dark"] * 0.50 + f["middle_dark"] * 0.35)
     scores["Pneumothorax"] = min(0.85, f["bilateral_diff"] * 0.45 + (1.0 - f["upper_dark"]) * 0.25)
-    scores["Lung Opacity"] = min(0.92, (f["lower_dark"] + f["middle_dark"]) * 0.40 + f["texture"] * 0.20)
+    opacity_score = min(0.92, (f["lower_dark"] + f["middle_dark"]) * 0.40 + f["texture"] * 0.20)
+    scores["Pneumonia"] = max(scores["Pneumonia"], opacity_score)
 
     abnormal_max = max(scores.values()) if scores else 0.0
     scores["Normal"] = max(0.10, min(0.95, 1.0 - abnormal_max * 0.85))
