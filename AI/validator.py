@@ -47,6 +47,8 @@ def verify_medical_image(
         (is_valid: bool, reason: str, telemetry: dict)
     """
     expected = (expected_modality or "XR").upper()
+    if expected == "MRI":
+        expected = "MR"
 
     # Stage 1: Universal Modality-Agnostic Authenticity Guard
     is_valid, reason, base_telemetry, gray = verify_base_authenticity(image_input, expected)

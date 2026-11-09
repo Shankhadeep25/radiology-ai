@@ -232,3 +232,4 @@ All baseline predictions include:
   "model_metrics": { "accuracy": ..., "macro_auc": ..., "accuracy_ci": [...], "macro_auc_ci": [...] }
 }
 ```
+

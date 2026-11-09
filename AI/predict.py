@@ -406,6 +406,7 @@ def predict_baseline(name: str, image: Any) -> dict[str, Any]:
     return {
         "primary_label": primary_label,
         "confidence": confidence,
+        "severity": None,
         "uncertainty_level": uncertainty_level,
         "calibrated": False,
         "in_review_band": None,

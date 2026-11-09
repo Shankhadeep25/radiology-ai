@@ -126,7 +126,7 @@ def run_full_analysis(
         report = generate_report(
             primary_label=prediction["primary_label"],
             confidence=prediction["confidence"],
-            severity=prediction["severity"],
+            severity=prediction.get("severity"),
             differential=prediction["differential_diagnosis"],
             output_dir=str(settings.report_dir),
             study_id=study_id,

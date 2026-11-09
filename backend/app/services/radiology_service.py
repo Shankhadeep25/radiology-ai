@@ -118,8 +118,8 @@ def analyze_study(db: Session, study_id: int, user: User | None = None) -> Analy
         study_id=study.id,
         primary_label=result["primary_label"],
         confidence=result["confidence"],
-        severity=result["severity"],
-        uncertainty_level=result["uncertainty_level"],
+        severity=result.get("severity"),
+        uncertainty_level=result.get("uncertainty_level"),
         differential_diagnosis=json.dumps({
             "differential": result["differential_diagnosis"],
             "all_findings": result.get("all_findings", []),
@@ -339,6 +339,13 @@ def _parse_diagnosis_json(raw: str | None) -> tuple[list, list, dict]:
         "anatomy_detection": data.get("anatomy_detection"),
         "raw_scores": data.get("raw_scores") or {},
         "telemetry": data.get("telemetry") or {},
+        "calibrated": data.get("calibrated"),
+        "in_review_band": data.get("in_review_band"),
+        "status": data.get("status"),
+        "all_scores": data.get("all_scores"),
+        "disclaimer": data.get("disclaimer"),
+        "model_metrics": data.get("model_metrics"),
+        "modality_warning": data.get("modality_warning"),
     }
     return data.get("differential", []), data.get("all_findings", []), meta
 

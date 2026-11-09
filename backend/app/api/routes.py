@@ -1,8 +1,11 @@
+import logging
+from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 from fastapi.security import OAuth2PasswordRequestForm
-from pathlib import Path
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from app.config import settings
 from app.database import get_db
@@ -162,16 +165,14 @@ async def upload_scan(
 def predict(study_id: int, db: Session = Depends(get_db), user: User = Depends(_require_user)):
     try:
         return radiology_service.analyze_study(db, study_id, user)
-    except (RuntimeError, ValueError) as e:
-        if "model unavailable" in str(e).lower():
-            raise HTTPException(status_code=503, detail=str(e))
-        if isinstance(e, ValueError):
-            raise HTTPException(status_code=404, detail=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
-        if "model unavailable" in str(e).lower():
-            raise HTTPException(status_code=503, detail=str(e))
-        raise HTTPException(status_code=500, detail="Inference failed")
+        logger.exception("Inference failed for study %s: %s", study_id, e)
+        err_msg = str(e)
+        if "model unavailable" in err_msg.lower():
+            raise HTTPException(status_code=503, detail=err_msg)
+        if isinstance(e, ValueError) and "study not found" in err_msg.lower():
+            raise HTTPException(status_code=404, detail="Study not found")
+        raise HTTPException(status_code=500, detail=err_msg or "Inference failed")
 
 
 @router.post("/predict/{study_id}/async", response_model=AsyncTaskResponse)

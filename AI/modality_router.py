@@ -64,6 +64,8 @@ def run_modality_inference(
 ) -> dict:
     hint = original_filename or image_path
     declared = (declared_modality or detect_modality_from_file(image_path, declared_modality)).upper()
+    if declared == "MRI":
+        declared = "MR"
 
     # Medical authenticity and non-medical image verification
     is_valid, reject_reason, auth_telemetry = verify_medical_image(image_path, declared)
